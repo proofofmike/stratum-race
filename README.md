@@ -1,4 +1,4 @@
-# mining-tools
+# stratum-race
 
 Bitcoin mining tools by [@proofofmike](https://proofofmike.com).
 
@@ -33,8 +33,8 @@ A "win" means this client observed that pool first from this network/location. I
 ### Installation
 
 ```bash
-git clone https://github.com/proofofmike/mining-tools.git
-cd mining-tools
+git clone https://github.com/proofofmike/stratum-race.git
+cd stratum-race
 ```
 
 ### Usage
