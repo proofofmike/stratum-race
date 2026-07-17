@@ -1,0 +1,353 @@
+{
+  "version": 2,
+  "updated_utc": "2026-07-11T00:00:00Z",
+  "pools": [
+    {
+      "name": "ocean",
+      "display_name": "OCEAN",
+      "host": "mine.ocean.xyz",
+      "port": 3334,
+      "operator": "OCEAN",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "antpool",
+      "display_name": "AntPool",
+      "host": "ss.antpool.com",
+      "port": 3333,
+      "operator": "AntPool",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "asia"
+      ]
+    },
+    {
+      "name": "f2pool",
+      "display_name": "F2Pool",
+      "host": "btc.f2pool.com",
+      "port": 3333,
+      "operator": "F2Pool",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "asia"
+      ]
+    },
+    {
+      "name": "viabtc",
+      "display_name": "ViaBTC",
+      "host": "btc.viabtc.io",
+      "port": 3333,
+      "operator": "ViaBTC",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "asia"
+      ]
+    },
+    {
+      "name": "spiderpool",
+      "display_name": "SpiderPool",
+      "host": "btc-us.spiderpool.com",
+      "port": 3333,
+      "operator": "SpiderPool",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "secpool",
+      "display_name": "SecPool",
+      "host": "btc.secpool.com",
+      "port": 3333,
+      "operator": "SecPool",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "asia"
+      ]
+    },
+    {
+      "name": "binance_pool",
+      "display_name": "Binance Pool",
+      "host": "bs.poolbinance.com",
+      "port": 3333,
+      "operator": "Binance Pool",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "asia"
+      ]
+    },
+    {
+      "name": "braiins_pool",
+      "display_name": "Braiins Pool",
+      "host": "stratum.braiins.com",
+      "port": 3333,
+      "operator": "Braiins",
+      "pool_type": "shared",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "ckpool",
+      "display_name": "CKPool",
+      "host": "stratum.ckpool.org",
+      "port": 3333,
+      "operator": "CKPool",
+      "pool_type": "solo",
+      "groups": [
+        "all"
+      ]
+    },
+    {
+      "name": "atlaspool",
+      "display_name": "AtlasPool",
+      "host": "solo.atlaspool.io",
+      "port": 3333,
+      "operator": "AtlasPool",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "public_pool",
+      "display_name": "Public Pool",
+      "host": "public-pool.io",
+      "port": 3333,
+      "operator": "Public Pool",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "parasite",
+      "display_name": "Parasite",
+      "host": "parasite.wtf",
+      "port": 42069,
+      "operator": "Parasite",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "pyblock",
+      "display_name": "PyBLOCK",
+      "host": "pool.pyblock.xyz",
+      "port": 4444,
+      "operator": "PyBLOCK",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "solomining_de",
+      "display_name": "SoloMining DE",
+      "host": "pool.solomining.de",
+      "port": 3333,
+      "operator": "SoloMining",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "mineshop",
+      "display_name": "MineShop",
+      "host": "solo.mineshop.eu",
+      "port": 3333,
+      "operator": "MineShop",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "bitcoinmerch",
+      "display_name": "BitcoinMerch",
+      "host": "pool.bitcoinmerch.com",
+      "port": 3333,
+      "operator": "BitcoinMerch",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "2miners_eu",
+      "display_name": "2Miners EU",
+      "host": "solo-btc.2miners.com",
+      "port": 2323,
+      "operator": "2Miners",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "2miners_us",
+      "display_name": "2Miners US",
+      "host": "us-solo-btc.2miners.com",
+      "port": 2323,
+      "operator": "2Miners",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "2miners_asia",
+      "display_name": "2Miners Asia",
+      "host": "asia-solo-btc.2miners.com",
+      "port": 2323,
+      "operator": "2Miners",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "asia"
+      ]
+    },
+    {
+      "name": "letsmineit",
+      "display_name": "LetsMineIt US",
+      "host": "us1.letsmine.it",
+      "port": 3332,
+      "operator": "LetsMineIt",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "solofury",
+      "display_name": "SoloFury",
+      "host": "btc.solofury.com",
+      "port": 6060,
+      "operator": "SoloFury",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "noderunners",
+      "display_name": "NodeRunners",
+      "host": "pool.noderunners.network",
+      "port": 1337,
+      "operator": "NodeRunners",
+      "pool_type": "UNSURE",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "blitzpool",
+      "display_name": "BlitzPool",
+      "host": "blitzpool.yourdevice.ch",
+      "port": 3333,
+      "operator": "BlitzPool",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "helios",
+      "display_name": "HeliosPool",
+      "host": "btc.heliospool.com",
+      "port": 3333,
+      "operator": "Helios",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "solopool_com",
+      "display_name": "SoloPool.com",
+      "host": "stratum.solopool.com",
+      "port": 3333,
+      "operator": "SoloPool.com",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "ca_solohash",
+      "display_name": "SoloHash CA",
+      "host": "solo-ca.solohash.co.uk",
+      "port": 3333,
+      "operator": "SoloHash",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "uk_solohash",
+      "display_name": "SoloHash UK",
+      "host": "solo.solohash.co.uk",
+      "port": 3333,
+      "operator": "SoloHash",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "de_solohash",
+      "display_name": "SoloHash DE",
+      "host": "solo-de.solohash.co.uk",
+      "port": 3333,
+      "operator": "SoloHash",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    },
+    {
+      "name": "braiins_solo",
+      "display_name": "Braiins Solo",
+      "host": "solo.stratum.braiins.com",
+      "port": 3333,
+      "operator": "Braiins",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ]
+    }
+  ]
+}

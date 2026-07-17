@@ -1,0 +1,43 @@
+# Terraform
+terraform/terraform.tfvars
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.backup
+terraform/.build/
+terraform/plan.out
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.hypothesis/
+
+# Node/Frontend
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+._*
+
+# Secrets
+*.pem
+*.key
+.env
+.env.production
+.env.local
+.env.*.local
+
+# Python virtual environment
+.venv/
+
+# Export output
+export/
+.export-push-tmp/

@@ -1,0 +1,65 @@
+{
+  "title": "StratumRace Pool Configuration",
+  "description": "Central pool configuration for StratumRace platform collectors. Each pool endpoint is ranked independently.",
+  "type": "object",
+  "required": ["version", "updated_utc", "pools"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Schema version number for forward compatibility"
+    },
+    "updated_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp of last configuration update"
+    },
+    "pools": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Array of pool endpoint configurations",
+      "items": {
+        "type": "object",
+        "required": ["name", "display_name", "host", "port", "groups"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$",
+            "description": "Internal unique identifier (lowercase, underscores allowed)"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "User-facing display label shown in frontend views"
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stratum endpoint hostname"
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "Stratum endpoint port number"
+          },
+          "operator": {
+            "type": "string",
+            "description": "Optional operator name for filter grouping (informational only, not used for ranking)"
+          },
+          "groups": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "One or more group tags for collector filtering (e.g., 'all', 'americas', 'europe', 'asia')"
+          }
+        }
+      }
+    }
+  }
+}

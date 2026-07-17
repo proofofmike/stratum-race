@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stratumrace"
+version = "0.1.0"
+description = "StratumRace — measure Bitcoin mining pool block notification speed"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "starlette>=0.27",
+    "uvicorn>=0.23",
+    "websockets>=11.0",
+]
+
+[project.scripts]
+stratumrace = "standalone.main:main"
+
+[tool.setuptools.packages.find]
+where = ["../.."]
+include = ["standalone*", "lib*", "collector*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json"]
