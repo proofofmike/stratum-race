@@ -14,6 +14,9 @@ Timing model:
   - Timestamp is taken immediately after readline() returns.
   - Race signal is mining.notify where clean_jobs is true and prevhash changed.
   - First notify after connect/reconnect is a baseline only, even when clean=true.
+  - Per-pool RTT is the shortest ICMP ping observed to the pool host; half-RTT
+    (one-way) is subtracted from each notify receive time so ranking reflects
+    pool send time more closely than raw wire arrival at this vantage.
 
 Important accounting model:
   - Reconnects are counted in one centralized path.
@@ -33,6 +36,7 @@ import csv
 import json
 import os
 import platform
+import re
 import secrets
 import signal
 import statistics
@@ -72,7 +76,16 @@ DEFAULT_BASELINE_TIMEOUT = 120.0
 BLOCK_MINER_LOOKUP_TIMEOUT = 8.0
 MEMPOOL_API_BASE = "https://mempool.space/api"
 
-CLIENT_VERSION = "stratum-race/0.5"
+# ICMP ping RTT estimation. Half of the shortest observed ping (one-way) is
+# subtracted from notify receive times so path delay does not dominate rankings.
+# TCP connect time is NOT used — it includes handshake/setup overhead and often
+# reads many times higher than a real ping to the same host.
+RTT_PING_INTERVAL = 30.0
+RTT_PING_COUNT = 3          # echoes per probe round
+RTT_PING_TIMEOUT_S = 2.0    # per-echo wait (Linux ping -W seconds)
+RTT_MAX_SAMPLES = 64
+
+CLIENT_VERSION = "stratum-race/0.6"
 
 # POST retry constants
 POST_TIMEOUT = 5.0           # Must complete within 5 seconds of race confirmation
@@ -107,6 +120,52 @@ def loop_time() -> float:
 
 def ms(seconds: float) -> float:
     return round(seconds * 1000.0, 3)
+
+
+def one_way_seconds(rtt_ms: Optional[float]) -> float:
+    """Estimate one-way network delay from a round-trip sample (symmetric path)."""
+    if rtt_ms is None or rtt_ms < 0:
+        return 0.0
+    return (rtt_ms / 2.0) / 1000.0
+
+
+_PING_TIME_RE = re.compile(r"time[=<]([\d.]+)\s*ms", re.IGNORECASE)
+
+
+async def icmp_ping_times_ms(host: str, count: int = RTT_PING_COUNT) -> List[float]:
+    """Run system `ping` and return successful echo RTTs in milliseconds.
+
+    Uses the shortest observed time for correction (via PoolState.rtt_ms).
+    Returns an empty list if ping is unavailable, blocked, or times out.
+    """
+    timeout_s = max(1, int(RTT_PING_TIMEOUT_S))
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ping",
+            "-c", str(count),
+            "-W", str(timeout_s),
+            host,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        return []
+
+    try:
+        stdout, _ = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=count * RTT_PING_TIMEOUT_S + 5.0,
+        )
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        await proc.communicate()
+        return []
+
+    text = stdout.decode(errors="replace")
+    return [float(m.group(1)) for m in _PING_TIME_RE.finditer(text)]
 
 
 def _print(pool_name: str, msg: str) -> None:
@@ -290,6 +349,13 @@ class PoolState:
     bad_notify: int = 0
     empty_notifies: int = 0     # notifies whose template had no transactions
 
+    # ICMP ping RTT samples (ms). Correction uses the shortest ping seen.
+    rtt_samples_ms: List[float] = field(default_factory=list)
+    rtt_best_ms: Optional[float] = None  # shortest successful ping this run
+    rtt_pings_sent: int = 0
+    rtt_pings_ok: int = 0
+    rtt_pings_failed: int = 0
+
     def record_reconnect(self, reason: str) -> None:
         """Count an established-session reconnect in one place."""
         self.reconnects += 1
@@ -300,6 +366,23 @@ class PoolState:
             self.remote_closes += 1
         else:
             self.other_disconnects += 1
+
+    def record_rtt(self, rtt_ms: float) -> None:
+        """Record a positive ICMP ping sample (milliseconds)."""
+        if rtt_ms < 0:
+            return
+        self.rtt_samples_ms.append(rtt_ms)
+        if len(self.rtt_samples_ms) > RTT_MAX_SAMPLES:
+            self.rtt_samples_ms = self.rtt_samples_ms[-RTT_MAX_SAMPLES:]
+        if self.rtt_best_ms is None or rtt_ms < self.rtt_best_ms:
+            self.rtt_best_ms = rtt_ms
+
+    def rtt_ms(self) -> Optional[float]:
+        """RTT estimate: shortest successful ICMP ping observed this run."""
+        return self.rtt_best_ms
+
+    def one_way_s(self) -> float:
+        return one_way_seconds(self.rtt_ms())
 
     def reset_connection_state(self) -> None:
         self.connected = False
@@ -321,6 +404,9 @@ class Race:
     eligible_at_start: Set[str]
     arrivals: Dict[str, float] = field(default_factory=dict)
     arrival_wall: Dict[str, str] = field(default_factory=dict)
+    # Snapshot of each pool's RTT estimate (ms) at the moment its notify arrived.
+    # Used to subtract one-way latency when computing offsets.
+    arrival_rtt_ms: Dict[str, Optional[float]] = field(default_factory=dict)
     # First arrival per pool that carried a non-empty template. Pools that led
     # with an empty template appear here only once their full template lands
     # within the confirm window.
@@ -337,25 +423,52 @@ class Race:
     block_miner: Optional[str] = None
     block_miner_source: Optional[str] = None
 
-    def arrival_offsets_ms(self) -> Dict[str, float]:
+    def _corrected_arrivals(self, arrivals: Dict[str, float]) -> Dict[str, float]:
+        """Receive times with half-RTT (one-way) removed per pool."""
+        return {
+            pool_name: arrival_ts - one_way_seconds(self.arrival_rtt_ms.get(pool_name))
+            for pool_name, arrival_ts in arrivals.items()
+        }
+
+    def raw_arrival_offsets_ms(self) -> Dict[str, float]:
+        """Uncorrected offsets relative to the first observed (raw) arrival."""
         return {
             pool_name: ms(arrival_ts - self.first_ts)
             for pool_name, arrival_ts in self.arrivals.items()
         }
 
+    def arrival_offsets_ms(self) -> Dict[str, float]:
+        """RTT-corrected offsets: rebased to the earliest estimated send time.
+
+        For each pool, estimated_send = recv_ts - RTT/2. Offsets are relative to
+        the minimum estimated_send among arrivals. When no RTT samples exist for
+        a pool, its one-way correction is 0 (same as raw for that pool).
+        """
+        if not self.arrivals:
+            return {}
+        corrected = self._corrected_arrivals(self.arrivals)
+        base = min(corrected.values())
+        return {pool_name: ms(ts - base) for pool_name, ts in corrected.items()}
+
     def nonempty_arrival_offsets_ms(self) -> Dict[str, float]:
         if not self.nonempty_arrivals:
             return {}
-        base = min(self.nonempty_arrivals.values())
-        return {
-            pool_name: ms(arrival_ts - base)
-            for pool_name, arrival_ts in self.nonempty_arrivals.items()
-        }
+        corrected = self._corrected_arrivals(self.nonempty_arrivals)
+        base = min(corrected.values())
+        return {pool_name: ms(ts - base) for pool_name, ts in corrected.items()}
+
+    def corrected_winner(self) -> Optional[str]:
+        """Pool with the earliest RTT-corrected arrival, if any."""
+        offsets = self.arrival_offsets_ms()
+        if not offsets:
+            return None
+        return min(offsets, key=offsets.get)
 
     def nonempty_winner(self) -> Optional[str]:
-        if not self.nonempty_arrivals:
+        offsets = self.nonempty_arrival_offsets_ms()
+        if not offsets:
             return None
-        return min(self.nonempty_arrivals, key=self.nonempty_arrivals.get)
+        return min(offsets, key=offsets.get)
 
     def missed_pools(self) -> List[str]:
         return sorted(self.eligible_at_start - set(self.arrivals))
@@ -383,16 +496,51 @@ class RaceTracker:
 
         p = pools[pool_name]
         p.seen += 1
-        offset = ms(race.arrivals[pool_name] - race.first_ts)
+        # Offsets and wins use RTT-corrected times so path length to each
+        # endpoint does not dominate the ranking.
+        offsets = race.arrival_offsets_ms()
+        offset = offsets[pool_name]
         p.all_arrival_offsets.append(offset)
 
-        if pool_name == race.first_pool:
+        winner = race.corrected_winner() or race.first_pool
+        if pool_name == winner:
             p.wins += 1
         else:
             p.losses += 1
             p.delays.append(offset)
 
         race.counted.add(pool_name)
+
+    def recompute_arrival_stats(self, pools: Dict[str, PoolState]) -> None:
+        """Rebuild win/loss/offset stats from confirmed races with current RTT math.
+
+        Live counting can assign a provisional win before a closer pool's notify
+        arrives; finalize recounts so corrected winners and offsets are consistent.
+        """
+        for p in pools.values():
+            p.wins = 0
+            p.losses = 0
+            p.seen = 0
+            p.delays.clear()
+            p.all_arrival_offsets.clear()
+
+        for race in self.all_races:
+            if not race.confirmed:
+                continue
+            offsets = race.arrival_offsets_ms()
+            if not offsets:
+                continue
+            winner = race.corrected_winner() or race.first_pool
+            race.counted = set(offsets)
+            for name, offset in offsets.items():
+                p = pools[name]
+                p.seen += 1
+                p.all_arrival_offsets.append(offset)
+                if name == winner:
+                    p.wins += 1
+                else:
+                    p.losses += 1
+                    p.delays.append(offset)
 
     def _count_misses(self, race: Race, pools: Dict[str, PoolState]) -> None:
         if race.missed_counted:
@@ -432,6 +580,10 @@ class RaceTracker:
         # final report. This is idempotent because each Race has missed_counted.
         for race in self.all_races:
             self._count_misses(race, pools)
+
+        # Rebuild arrival stats with RTT-corrected offsets/winners so late
+        # arrivals that were path-faster than the raw-first pool are ranked fairly.
+        self.recompute_arrival_stats(pools)
 
     def _all_have_same_prevhash(self, pools: Dict[str, PoolState]) -> Tuple[bool, Optional[str]]:
         if any(p.current_prevhash is None for p in pools.values()):
@@ -501,14 +653,22 @@ class RaceTracker:
                 # Console output: show full-template perspective only.
                 # If this is the first full template in the race, announce it
                 # as the race start. Otherwise show it as a match with offset
-                # relative to the first full template.
+                # relative to the first full template (RTT-corrected).
+                rtt_txt = fnum(race.arrival_rtt_ms.get(pool_name))
                 if not race.nonempty_arrivals or len(race.nonempty_arrivals) == 1:
                     # This pool delivered the first full template in this race
-                    _print(pool_name, f"OBSERVED block start {prevhash} (height resolved post-run)")
+                    _print(
+                        pool_name,
+                        f"OBSERVED block start {prevhash} (height resolved post-run, rtt={rtt_txt} ms)",
+                    )
                 else:
-                    base = min(race.nonempty_arrivals.values())
-                    delay = ms(recv_ts - base)
-                    _print(pool_name, f"match {short_hash(prevhash)} delay={fnum(delay)} ms")
+                    corr_offsets = race.nonempty_arrival_offsets_ms()
+                    delay = corr_offsets.get(pool_name, 0.0)
+                    _print(
+                        pool_name,
+                        f"match {short_hash(prevhash)} delay={fnum(delay)} ms "
+                        f"(rtt={rtt_txt} ms)",
+                    )
             if not clean:
                 pool.noise_repeats += 1
             return
@@ -533,6 +693,7 @@ class RaceTracker:
             if pool_name not in race.arrivals:
                 race.arrivals[pool_name] = recv_ts
                 race.arrival_wall[pool_name] = local_iso()
+                race.arrival_rtt_ms[pool_name] = pool.rtt_ms()
                 if empty:
                     race.empty_first.add(pool_name)
                 else:
@@ -540,15 +701,25 @@ class RaceTracker:
                 # Console output: full-template perspective only.
                 # If this pool arrived with an empty template, suppress output
                 # (it will print when the full template arrives). If full, show
-                # delay relative to the first full template in this race.
+                # RTT-corrected delay relative to the first full template.
                 if not empty:
+                    rtt_txt = fnum(race.arrival_rtt_ms[pool_name])
                     if race.nonempty_arrivals and len(race.nonempty_arrivals) > 1:
-                        base = min(race.nonempty_arrivals.values())
-                        delay = ms(recv_ts - base)
-                        _print(pool_name, f"match {short_hash(prevhash)} delay={fnum(delay)} ms")
+                        corr_offsets = race.nonempty_arrival_offsets_ms()
+                        delay = corr_offsets.get(pool_name, 0.0)
+                        raw_base = min(race.nonempty_arrivals.values())
+                        raw_delay = ms(recv_ts - raw_base)
+                        _print(
+                            pool_name,
+                            f"match {short_hash(prevhash)} delay={fnum(delay)} ms "
+                            f"(raw={fnum(raw_delay)} rtt={rtt_txt} ms)",
+                        )
                     else:
                         # This is the first full template in the race
-                        _print(pool_name, f"OBSERVED block start {prevhash} (height resolved post-run)")
+                        _print(
+                            pool_name,
+                            f"OBSERVED block start {prevhash} (height resolved post-run, rtt={rtt_txt} ms)",
+                        )
 
                 # A reconnecting pool becomes eligible again only after it proves it
                 # is synced to a real race.
@@ -598,6 +769,7 @@ class RaceTracker:
         )
         race.arrivals[pool_name] = recv_ts
         race.arrival_wall[pool_name] = race.first_wall
+        race.arrival_rtt_ms[pool_name] = pool.rtt_ms()
         if empty:
             race.empty_first.add(pool_name)
         else:
@@ -610,7 +782,11 @@ class RaceTracker:
         # If the starter sent an empty template, the announcement is deferred
         # until the first full template arrives (handled above).
         if not empty:
-            _print(pool_name, f"OBSERVED block start {prevhash} (height resolved post-run)")
+            rtt_txt = fnum(race.arrival_rtt_ms[pool_name])
+            _print(
+                pool_name,
+                f"OBSERVED block start {prevhash} (height resolved post-run, rtt={rtt_txt} ms)",
+            )
 
     def _quorum_baseline(
         self, pools: Dict[str, PoolState]
@@ -932,7 +1108,9 @@ def print_block_miner_summary(races: List[Race]) -> None:
         grouped[race.block_miner or "Unknown"].append(race)
 
     for miner, miner_races in sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        winner_counts = Counter(r.first_pool for r in miner_races)
+        winner_counts = Counter(
+            (r.corrected_winner() or r.first_pool) for r in miner_races
+        )
         top_winner, top_wins = winner_counts.most_common(1)[0]
         spreads = []
         for race in miner_races:
@@ -955,7 +1133,12 @@ def print_block_miner_summary(races: List[Race]) -> None:
 
     print("\nBLOCK MINER TAG DETAIL:")
     for miner, miner_races in sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        winner_text = ", ".join(f"{name}={count}" for name, count in Counter(r.first_pool for r in miner_races).most_common())
+        winner_text = ", ".join(
+            f"{name}={count}"
+            for name, count in Counter(
+                (r.corrected_winner() or r.first_pool) for r in miner_races
+            ).most_common()
+        )
         print(f"  {miner}: races={len(miner_races)} winners: {winner_text}")
 
 def delay_stats(values: Sequence[float]) -> Dict[str, Optional[float]]:
@@ -992,6 +1175,7 @@ def print_pool_table(pools: Dict[str, PoolState]) -> None:
         ("Std",          8),
         ("Best",         8),
         ("Worst",        8),
+        ("RTT",          8),
         ("Unmatch",      7),
         ("Stale",        6),
         ("Unstable",     8),
@@ -1025,6 +1209,7 @@ def print_pool_table(pools: Dict[str, PoolState]) -> None:
             fnum(stats["stddev"]).rjust(8),
             fnum(stats["best"]).rjust(8),
             fnum(stats["worst"]).rjust(8),
+            fnum(p.rtt_ms()).rjust(8),
             str(p.unmatched).rjust(7),
             str(p.stale_repeats).rjust(6),
             str(p.unstable).rjust(8),
@@ -1052,12 +1237,17 @@ def print_race_detail(races: List[Race], limit: Optional[int] = None) -> None:
     for race in selected:
         status = "confirmed" if race.confirmed else "unmatched notify"
         arrivals = sorted(race.arrival_offsets_ms().items(), key=lambda kv: kv[1])
-        arrival_text = ", ".join(f"{name} +{delay:.1f}ms" for name, delay in arrivals)
+        arrival_text = ", ".join(
+            f"{name} +{delay:.1f}ms"
+            f"(rtt={fnum(race.arrival_rtt_ms.get(name))}ms)"
+            for name, delay in arrivals
+        )
         missed = race.missed_pools() if race.confirmed else []
         missed_text = f" | missed: {', '.join(missed)}" if missed else ""
+        winner = race.corrected_winner() or race.first_pool
         print(
             f"{race.index:>3}. {short_hash(race.prevhash)} {status:<16} "
-            f"winner={race.first_pool:<12} arrivals: {arrival_text}{missed_text}"
+            f"winner={winner:<12} arrivals: {arrival_text}{missed_text}"
         )
 
 
@@ -1065,8 +1255,14 @@ def print_rankings(pools: Dict[str, PoolState], confirmed_count: int) -> None:
     def msfmt(v: Optional[float]) -> str:
         return "-" if v is None else f"{v:.1f}ms"
 
-    print("\nRANKING  (Median counts wins as 0ms; ChaseMed = median delay on races NOT won, blank if always first)")
-    print(f" {'Rk':>2}  {'Pool':<12} {'Median':>9}  {'ChaseMed':>9}  {'Seen':>4}  {'Wins':>4}")
+    print(
+        "\nRANKING  (Median/Chase are RTT-corrected: half-RTT subtracted per pool; "
+        "wins count as 0ms; ChaseMed = median delay on races NOT won; RTT = shortest ICMP ping to endpoint)"
+    )
+    print(
+        f" {'Rk':>2}  {'Pool':<12} {'Median':>9}  {'ChaseMed':>9}  {'RTT':>9}  "
+        f"{'Seen':>4}  {'Wins':>4}"
+    )
 
     ranked = [
         (statistics.median(p.all_arrival_offsets), p)
@@ -1077,12 +1273,16 @@ def print_rankings(pools: Dict[str, PoolState], confirmed_count: int) -> None:
         chase_med = statistics.median(p.delays) if p.delays else None
         print(
             f" {rank:>2}  {p.name:<12} {msfmt(median_delay):>9}  {msfmt(chase_med):>9}  "
-            f"{f'{p.seen}/{confirmed_count}':>4}  {p.wins:>4}"
+            f"{msfmt(p.rtt_ms()):>9}  {f'{p.seen}/{confirmed_count}':>4}  {p.wins:>4}"
         )
 
     print(
         "\n  high wins + low chase = dominant and fast. High wins + high chase = bimodal "
         "(wins when it wins, far behind otherwise), the signature of a geography/peering effect."
+    )
+    print(
+        "  RTT is the shortest ICMP ping to the pool host this run (not TCP connect time). "
+        "Notification offsets subtract RTT/2 so path delay is removed from the race ranking."
     )
 
 
@@ -1099,6 +1299,7 @@ def print_full_timing_table(pools: Dict[str, PoolState], confirmed_count: int) -
         ("P95", 8),
         ("Best", 8),
         ("Worst", 8),
+        ("RTT", 8),
         ("Reconn", 7),
         ("Timeout", 7),
         ("Closed", 6),
@@ -1129,6 +1330,7 @@ def print_full_timing_table(pools: Dict[str, PoolState], confirmed_count: int) -
             fnum(stats["p95"]).rjust(8),
             fnum(stats["best"]).rjust(8),
             fnum(stats["worst"]).rjust(8),
+            fnum(p.rtt_ms()).rjust(8),
             str(p.reconnects).rjust(7),
             str(p.read_timeouts).rjust(7),
             str(p.remote_closes).rjust(6),
@@ -1160,12 +1362,21 @@ def runtime_info(args: argparse.Namespace, pool_configs: List[PoolConfig], start
         "block_miner_lookup_source": MEMPOOL_API_BASE,
         "pool_count": len(pool_configs),
         "pools": [asdict(pc) for pc in pool_configs],
+        "rtt_ping_interval_seconds": RTT_PING_INTERVAL,
+        "rtt_ping_count": RTT_PING_COUNT,
+        "rtt_ping_timeout_seconds": RTT_PING_TIMEOUT_S,
+        "rtt_max_samples": RTT_MAX_SAMPLES,
+        "latency_correction": (
+            "arrival_offsets subtract per-pool RTT/2 (one-way); "
+            "RTT is shortest ICMP ping to host snapshotted at notify time"
+        ),
     }
 
 
 def pool_summary_dict(p: PoolState) -> Dict[str, Any]:
     stats = delay_stats(p.all_arrival_offsets)
     nonwin_stats = delay_stats(p.delays)
+    rtt_stats = delay_stats(p.rtt_samples_ms)
     return {
         "name": p.name,
         "host": p.host,
@@ -1182,6 +1393,13 @@ def pool_summary_dict(p: PoolState) -> Dict[str, Any]:
         "missed": p.missed,
         "arrival_offset_ms": stats,
         "non_winner_delay_ms": nonwin_stats,
+        "rtt_ms": p.rtt_ms(),
+        "rtt_best_ms": p.rtt_best_ms,
+        "rtt_samples_ms": list(p.rtt_samples_ms),
+        "rtt_stats_ms": rtt_stats,
+        "rtt_pings_sent": p.rtt_pings_sent,
+        "rtt_pings_ok": p.rtt_pings_ok,
+        "rtt_pings_failed": p.rtt_pings_failed,
         "unmatched": p.unmatched,
         "stale_repeats": p.stale_repeats,
         "unstable": p.unstable,
@@ -1214,7 +1432,8 @@ def race_dict(r: Race) -> Dict[str, Any]:
         "block_height": r.block_height,
         "block_miner": r.block_miner,
         "block_miner_source": r.block_miner_source,
-        "winner": r.first_pool,
+        "winner": r.corrected_winner() or r.first_pool,
+        "winner_raw": r.first_pool,
         "winner_nonempty": r.nonempty_winner(),
         "first_wall": r.first_wall,
         "first_epoch": r.first_epoch,
@@ -1223,6 +1442,8 @@ def race_dict(r: Race) -> Dict[str, Any]:
         "closed": r.closed,
         "eligible_at_start": sorted(r.eligible_at_start),
         "arrivals_offset_ms": r.arrival_offsets_ms(),
+        "arrivals_offset_raw_ms": r.raw_arrival_offsets_ms(),
+        "arrival_rtt_ms": dict(r.arrival_rtt_ms),
         "nonempty_arrivals_offset_ms": r.nonempty_arrival_offsets_ms(),
         "empty_first_pools": sorted(r.empty_first),
         # For empty-first pools: how long their miners hashed the empty
@@ -1265,6 +1486,7 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
             "auth_failed", "auth_error", "wins", "losses", "seen", "missed",
             "avg_ms", "median_ms", "p95_ms", "stddev_ms", "best_ms", "worst_ms",
             "chase_median_ms", "chase_avg_ms", "chase_p95_ms",
+            "rtt_ms", "rtt_avg_ms", "rtt_p95_ms", "rtt_samples",
             "unmatched", "stale", "unstable", "reconnects", "read_timeouts",
             "remote_closes", "connect_timeouts", "connect_errors", "notify_total",
             "clean_true", "clean_false", "noise_repeats", "noise_prevhash_changes",
@@ -1275,6 +1497,7 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
         for p in pools.values():
             stats = delay_stats(p.all_arrival_offsets)
             chase = delay_stats(p.delays)
+            rtt = delay_stats(p.rtt_samples_ms)
             writer.writerow({
                 "pool": p.name,
                 "host": p.host,
@@ -1296,6 +1519,10 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
                 "chase_median_ms": chase["median"],
                 "chase_avg_ms": chase["avg"],
                 "chase_p95_ms": chase["p95"],
+                "rtt_ms": p.rtt_ms(),
+                "rtt_avg_ms": rtt["avg"],
+                "rtt_p95_ms": rtt["p95"],
+                "rtt_samples": len(p.rtt_samples_ms),
                 "unmatched": p.unmatched,
                 "stale": p.stale_repeats,
                 "unstable": p.unstable,
@@ -1316,13 +1543,15 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
     with race_path.open("w", newline="") as f:
         fieldnames = [
             "index", "prevhash", "block_height", "block_miner", "confirmed", "winner",
-            "first_wall", "first_epoch", "first_utc",
-            "pool", "offset_ms", "eligible_at_start", "missed_pools",
+            "winner_raw", "first_wall", "first_epoch", "first_utc",
+            "pool", "offset_ms", "offset_raw_ms", "rtt_ms",
+            "eligible_at_start", "missed_pools",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in races:
             offsets = r.arrival_offsets_ms()
+            raw_offsets = r.raw_arrival_offsets_ms()
             for pool_name, offset in sorted(offsets.items(), key=lambda kv: kv[1]):
                 writer.writerow({
                     "index": r.index,
@@ -1330,12 +1559,15 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
                     "block_height": r.block_height,
                     "block_miner": r.block_miner,
                     "confirmed": r.confirmed,
-                    "winner": r.first_pool,
+                    "winner": r.corrected_winner() or r.first_pool,
+                    "winner_raw": r.first_pool,
                     "first_wall": r.first_wall,
                     "first_epoch": r.first_epoch,
                     "first_utc": r.first_utc,
                     "pool": pool_name,
                     "offset_ms": offset,
+                    "offset_raw_ms": raw_offsets.get(pool_name),
+                    "rtt_ms": r.arrival_rtt_ms.get(pool_name),
                     "eligible_at_start": ";".join(sorted(r.eligible_at_start)),
                     "missed_pools": ";".join(r.missed_pools() if r.confirmed else []),
                 })
@@ -1417,25 +1649,58 @@ def print_final_report(
 
     selected = confirmed[-race_limit:] if race_limit and race_limit > 0 else confirmed
 
-    print("\nPER-RACE TIMING:")
+    print("\nENDPOINT ROUND-TRIP LATENCY:")
+    rtt_rows = sorted(
+        pools.values(),
+        key=lambda p: (p.rtt_ms() is None, p.rtt_ms() if p.rtt_ms() is not None else 0.0, p.name),
+    )
+    any_rtt = False
+    for p in rtt_rows:
+        rtt = p.rtt_ms()
+        if rtt is None:
+            print(f"  {p.name:<12} RTT=N/A  (no samples)")
+            continue
+        any_rtt = True
+        rtt_stats = delay_stats(p.rtt_samples_ms)
+        print(
+            f"  {p.name:<12} RTT(min)={rtt:.1f}ms  "
+            f"(pings={len(p.rtt_samples_ms)} avg={fnum(rtt_stats['avg'])} "
+            f"p95={fnum(rtt_stats['p95'])} one-way≈{rtt / 2.0:.1f}ms)"
+        )
+    if not any_rtt:
+        print("  none measured")
+
+    print("\nPER-RACE TIMING (RTT-corrected offsets):")
     if not selected:
         print("  none")
     else:
         for race in selected:
             arrivals = sorted(race.arrival_offsets_ms().items(), key=lambda kv: kv[1])
-            top = ", ".join(f"{name} +{delay:.1f}ms" for name, delay in arrivals[:3])
+            top = ", ".join(
+                f"{name} +{delay:.1f}ms"
+                f"[rtt={fnum(race.arrival_rtt_ms.get(name))}]"
+                for name, delay in arrivals[:3]
+            )
             more = f" (+{len(arrivals) - 3} more)" if len(arrivals) > 3 else ""
             miner = race.block_miner or ""
             miner_text = f" mined_by={miner:<18} " if miner else " "
             height_text = f"height={race.block_height} " if race.block_height is not None else ""
+            winner = race.corrected_winner() or race.first_pool
             print(
-                f"  {race.index:>3}. {height_text}{short_hash(race.prevhash)}{miner_text}winner={race.first_pool:<12} "
+                f"  {race.index:>3}. {height_text}{short_hash(race.prevhash)}{miner_text}winner={winner:<12} "
                 f"{top}{more}"
             )
 
     print_block_miner_summary(confirmed)
 
-    print("\nNote: winner means first observed by this client/vantage point, not global propagation proof.")
+    print(
+        "\nNote: winner means earliest RTT-corrected notify at this client/vantage point "
+        "(raw first-seen is still logged live), not global propagation proof."
+    )
+    print(
+        "Note: offsets subtract each pool's half-RTT (one-way path latency) snapshotted when "
+        "the notify arrived, so farther endpoints are not unfairly ranked worse."
+    )
     print(
         "Note: timing resolution is bounded by event-loop scheduling and TCP read buffering. "
         "Full-precision values are kept in the CSV/JSON for analysis, but treat sub-millisecond "
@@ -1456,12 +1721,18 @@ def print_final_report(
                 f"timeouts={p.read_timeouts} remote_closed={p.remote_closes} "
                 f"connect_timeouts={p.connect_timeouts} connect_errors={p.connect_errors} "
                 f"other_disconnects={p.other_disconnects} "
+                f"rtt_min={fnum(p.rtt_ms())}ms samples={len(p.rtt_samples_ms)} "
+                f"pings={p.rtt_pings_ok}/{p.rtt_pings_sent} fail={p.rtt_pings_failed} "
                 f"first_notify={p.first_notify_at_wall or 'N/A'} last_notify={p.last_notify_at_wall or 'N/A'}"
             )
 
-        print("\nDEBUG ARRIVAL OFFSETS INCLUDING WINS (raw ms; sub-ms is noise):")
+        print("\nDEBUG ARRIVAL OFFSETS INCLUDING WINS (RTT-corrected ms; sub-ms is noise):")
         for pool_name, p in pools.items():
             print(pool_name, p.all_arrival_offsets)
+
+        print("\nDEBUG ICMP PING SAMPLES (ms); correction uses min:")
+        for pool_name, p in pools.items():
+            print(pool_name, f"min={p.rtt_best_ms}", p.rtt_samples_ms)
 
         print("\nRUNTIME:")
         print(f"  started_local = {meta['started_local']}")
@@ -1470,6 +1741,7 @@ def print_final_report(
         print(f"  platform      = {meta['platform']}")
         print(f"  client        = {CLIENT_VERSION}")
         print(f"  confirm_window={CONFIRM_WINDOW}s read_timeout={READ_TIMEOUT}s reconnect_delay={RECONNECT_DELAY}s")
+        print(f"  rtt_ping_interval={RTT_PING_INTERVAL}s rtt_ping_count={RTT_PING_COUNT}")
 
         print("\nDEBUG NOTES:")
         print("  timestamp  = asyncio event-loop time taken immediately after readline() returns")
@@ -1482,6 +1754,8 @@ def print_final_report(
         print("  blockhash  = stratum prevhash transformed to canonical explorer hash; height/miner are post-run lookups")
         print("  reconnects = established session ended and reconnected: read timeout, remote close, or other disconnect")
         print("  noise      = clean=false same-prevhash notify/template refresh")
+        print("  rtt        = shortest ICMP ping (system `ping`) to the pool host this run")
+        print("  correction = estimated_send = recv_ts - RTT/2; offsets rebased to earliest estimated_send")
 
     # One-line headline result at the very end for quick scanning.
     if confirmed:
@@ -1557,7 +1831,8 @@ async def pool_worker(
             pool.auth_error = None
             pool.subscribe_failed = False
             pool.subscribe_error = None
-            _print(name, "connected")
+            rtt_txt = fnum(pool.rtt_ms())
+            _print(name, f"connected (ping_min={rtt_txt} ms)")
 
             send_json(writer, {"id": 1, "method": "mining.subscribe", "params": []})
             send_json(writer, {"id": 2, "method": "mining.authorize", "params": [user, "x"]})
@@ -1681,6 +1956,43 @@ async def pool_worker(
 
         if not stop_event.is_set():
             await asyncio.sleep(RECONNECT_DELAY)
+
+
+async def _ping_pool_once(pool: PoolState) -> None:
+    """One ICMP probe round for a single pool host; update shortest RTT."""
+    pool.rtt_pings_sent += 1
+    prev_best = pool.rtt_best_ms
+    samples = await icmp_ping_times_ms(pool.host)
+    if not samples:
+        pool.rtt_pings_failed += 1
+        return
+    pool.rtt_pings_ok += 1
+    for sample in samples:
+        pool.record_rtt(sample)
+    # Announce first estimate or an improved (shorter) best.
+    if prev_best is None or (pool.rtt_best_ms is not None and pool.rtt_best_ms < prev_best):
+        _print(
+            pool.name,
+            f"ping min={fnum(pool.rtt_best_ms)} ms "
+            f"(round n={len(samples)}, best-of-run)",
+        )
+
+
+async def rtt_monitor(pools: Dict[str, PoolState], stop_event: asyncio.Event) -> None:
+    """Continuously ICMP-ping each pool host; RTT = shortest echo seen.
+
+    Caller should run an initial probe round before starting workers; this task
+    waits one interval, then refreshes for the rest of the run.
+    """
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=RTT_PING_INTERVAL)
+            return
+        except asyncio.TimeoutError:
+            pass
+        if stop_event.is_set():
+            return
+        await asyncio.gather(*(_ping_pool_once(p) for p in pools.values()))
 
 
 HEARTBEAT_INTERVAL = 300.0  # 5 minutes
@@ -2088,11 +2400,14 @@ def _build_race_result(
         "first_epoch": race.first_epoch,
         "first_utc": race.first_utc,
         "confirm_window_s": CONFIRM_WINDOW,
-        "winner": race.first_pool,
+        "winner": race.corrected_winner() or race.first_pool,
+        "winner_raw": race.first_pool,
         "winner_nonempty": race.nonempty_winner(),
         "block_miner": race.block_miner,
         "block_miner_source": race.block_miner_source,
         "arrivals_offset_ms": race.arrival_offsets_ms(),
+        "arrivals_offset_raw_ms": race.raw_arrival_offsets_ms(),
+        "arrival_rtt_ms": dict(race.arrival_rtt_ms),
         "nonempty_arrivals_offset_ms": race.nonempty_arrival_offsets_ms(),
         "empty_first_pools": sorted(race.empty_first),
         "empty_to_full_ms": {
@@ -2108,6 +2423,7 @@ def _build_race_result(
             "version": CLIENT_VERSION,
             "uptime_seconds": int(time.time() - start_time),
             "session_races": session_races,
+            "latency_correction": "RTT/2 (one-way) subtracted from notify receive times",
         },
     }
 
@@ -2522,16 +2838,24 @@ async def run(args: argparse.Namespace, race_sink=None, stop_event=None) -> None
     print("Timing: asyncio event-loop clock, single thread")
     print("Baseline: any mining.notify")
     print("Race signal: clean=true + prevhash change")
-    print("Win meaning: first observed by this client/vantage point")
+    print("RTT: shortest ICMP ping to each pool host (system ping, not TCP connect)")
+    print("Latency correction: subtract RTT/2 (one-way) from each notify before ranking")
+    print("Win meaning: earliest RTT-corrected notify at this client/vantage point")
     print()
 
     start_epoch = time.time()
+
+    # First ping round before workers so connect logs and early notifies have RTT.
+    print("Measuring ICMP ping to each endpoint...", flush=True)
+    await asyncio.gather(*(_ping_pool_once(p) for p in pools.values()))
+    print()
 
     tasks = [
         asyncio.create_task(pool_worker(pc.name, pc.host, pc.port, args.user, tracker, pools, stop_event))
         for pc in pool_configs
     ]
     tasks.append(asyncio.create_task(housekeeping(tracker, pools, stop_event, args, start_epoch, race_sink=race_sink)))
+    tasks.append(asyncio.create_task(rtt_monitor(pools, stop_event)))
 
     # Start heartbeat POST loop only if post_url is configured
     if getattr(args, "post_url", None):

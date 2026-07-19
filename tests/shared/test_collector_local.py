@@ -99,9 +99,12 @@ class TestEnrichAndBuild:
         race.first_utc = "2024-01-01T00:00:00Z"
         race.first_pool = "pool1"
         race.confirmed = True
+        race.corrected_winner.return_value = "pool1"
         race.nonempty_winner.return_value = "pool1"
         race.arrival_offsets_ms.return_value = {"pool1": 0.0, "pool2": 15.5}
+        race.raw_arrival_offsets_ms.return_value = {"pool1": 0.0, "pool2": 15.5}
         race.nonempty_arrival_offsets_ms.return_value = {"pool1": 0.0, "pool2": 20.0}
+        race.arrival_rtt_ms = {"pool1": 10.0, "pool2": 20.0}
         race.empty_first = set()
         race.nonempty_arrivals = {}
         race.arrivals = {}
@@ -168,9 +171,12 @@ class TestHybridMode:
         mock_race.first_epoch = time.time()
         mock_race.first_utc = "2024-01-01T00:00:00Z"
         mock_race.first_pool = "pool1"
+        mock_race.corrected_winner.return_value = "pool1"
         mock_race.nonempty_winner.return_value = "pool1"
         mock_race.arrival_offsets_ms.return_value = {"pool1": 0.0}
+        mock_race.raw_arrival_offsets_ms.return_value = {"pool1": 0.0}
         mock_race.nonempty_arrival_offsets_ms.return_value = {"pool1": 0.0}
+        mock_race.arrival_rtt_ms = {"pool1": 12.0}
         mock_race.empty_first = set()
         mock_race.nonempty_arrivals = {}
         mock_race.arrivals = {}
