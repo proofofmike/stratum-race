@@ -54,6 +54,12 @@
             template. The "Any Template" view shows the first notification regardless of
             content, while "Full Template" (the default) only considers templates that
             include transactions.</li>
+          <li><strong>Solo vs All</strong> - Pools are categorized as either "solo" (the
+            miner who finds a block receives the entire reward minus pool fees) or "shared"
+            (block rewards are distributed among participants via PPLNS or similar payout
+            schemes). The default "Solo" filter shows only solo pools, which is the more
+            relevant comparison for miners choosing between solo pool operators. The "All"
+            filter includes both solo and shared pools.</li>
           <li><strong>Statistics</strong> - Median offsets are computed per pool across
             configurable time windows. Win counts and win percentages show which pools
             consistently deliver first.</li>
@@ -130,10 +136,8 @@
           available today.
         </p>
         <p>
-          Follow the maintainers of StratumRace on X:
-          <a href="https://x.com/proofofmike" target="_blank" rel="noopener">@proofofmike</a>
-          and
-          <a href="https://x.com/AtlasPool_io" target="_blank" rel="noopener">@AtlasPool_io</a>.
+          Follow StratumRace on X:
+          <a href="https://x.com/stratumrace" target="_blank" rel="noopener">@stratumrace</a>.
         </p>
       </section>
 

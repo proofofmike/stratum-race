@@ -2,8 +2,11 @@
 terraform/terraform.tfvars
 terraform/.terraform/
 terraform/.terraform.lock.hcl
-terraform/*.tfstate
-terraform/*.tfstate.backup
+# Match any state file variant. State holds resolved secret values in
+# plaintext (SSM SecureStrings, random_password results, API keys), so the
+# pattern is deliberately broad: suffixed copies like
+# terraform.tfstate.old-<account> escaped the narrower *.tfstate rule.
+terraform/*.tfstate*
 terraform/*.backup
 terraform/.build/
 terraform/plan.out
