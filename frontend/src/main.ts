@@ -88,6 +88,8 @@ document.addEventListener('visibilitychange', () => {
     connect()
     // Refresh recent blocks in case we missed updates while backgrounded
     store.loadRecentBlocks()
+    // Refresh vantage health so status dots reflect current heartbeats
+    store.loadVantageHealth()
     // Reload the aggregate for the user's CURRENT time frame selection —
     // never reset the displayed data to a fixed period
     store.reloadActiveTimeFrame()
