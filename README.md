@@ -204,8 +204,8 @@ The collector connects to each pool's Stratum endpoint and subscribes to `mining
 
 - **Race signal**: `clean_jobs=true` + new prevhash (indicates a new block)
 - **Confirm window**: 15 seconds (arrivals after this are excluded)
-- **Winner**: First pool to deliver a full block template (with transactions)
-- **Offsets**: Milliseconds behind the winner for each other pool
+- **Winner**: Earliest RTT-corrected notify at this vantage (raw first-seen is still retained)
+- **Offsets**: Milliseconds behind the winner for each other pool, after subtracting half of each pool's shortest ICMP ping (one-way path latency)
 
 ---
 
