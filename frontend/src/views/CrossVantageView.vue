@@ -89,35 +89,48 @@ function sortIndicator(col: string): string {
 
 /**
  * Color gradient based on absolute ms thresholds:
- * 0-100ms: bright green
- * 100-300ms: green → yellow
- * 300-500ms: yellow → red
- * 500-1000ms: dark red
- * 1000ms+: dark red + diagonal stripes (intensity scales with severity)
+ * 0–100ms:    bright green (keep exactly as-is)
+ * 100–300ms:  green → yellow
+ * 300–500ms:  flat yellow
+ * 500–800ms:  yellow → orange
+ * 800–1000ms: orange → red
+ * 1000ms+:    solid red
+ * 2000ms+:    red + diagonal stripes (severity scales with value)
  */
 function getCellStyle(value: number | null): Record<string, string> {
   if (value == null) return { backgroundColor: 'var(--surface-elevated)' }
 
   if (value <= 100) {
+    // Green — unchanged
     const intensity = 0.25 + (1 - value / 100) * 0.15
     return { backgroundColor: `rgba(34, 197, 94, ${intensity.toFixed(2)})` }
   } else if (value <= 300) {
+    // Green → yellow (hue 120 → 60)
     const ratio = (value - 100) / 200
     const hue = 120 - ratio * 60
-    return { backgroundColor: `hsla(${hue}, 75%, 45%, 0.3)` }
+    const opacity = 0.3 + ratio * 0.2  // 0.30 → 0.50 so yellow is visible
+    return { backgroundColor: `hsla(${hue.toFixed(0)}, 80%, 50%, ${opacity.toFixed(2)})` }
   } else if (value <= 500) {
-    const ratio = (value - 300) / 200
-    const hue = 60 - ratio * 60
-    return { backgroundColor: `hsla(${hue}, 75%, 45%, 0.35)` }
+    // Flat yellow — higher opacity so it reads as yellow on dark bg
+    return { backgroundColor: 'hsla(55, 90%, 50%, 0.55)' }
+  } else if (value <= 800) {
+    // Yellow → orange (hue 55 → 25)
+    const ratio = (value - 500) / 300
+    const hue = 55 - ratio * 30
+    const opacity = 0.55 + ratio * 0.1  // 0.55 → 0.65
+    return { backgroundColor: `hsla(${hue.toFixed(0)}, 90%, 48%, ${opacity.toFixed(2)})` }
   } else if (value <= 1000) {
-    return { backgroundColor: 'rgba(220, 38, 38, 0.35)' }
+    // Orange → red (hue 25 → 0)
+    const ratio = (value - 800) / 200
+    const hue = 25 - ratio * 25
+    return { backgroundColor: `hsla(${hue.toFixed(0)}, 90%, 45%, 0.65)` }
+  } else if (value <= 2000) {
+    // Solid red
+    return { backgroundColor: 'rgba(220, 38, 38, 0.70)' }
   } else {
-    // Over 1000ms: dark red + diagonal stripes with increasing width and opacity
-    // Scale: 1000ms = thin faint stripes, 3000ms+ = thick bold stripes
-    const severity = Math.min(1, (value - 1000) / 2000)
-    // Stripe opacity: 0.2 at 1000ms → 0.7 at 3000ms+
+    // Over 2000ms: red + diagonal stripes, severity scales with value
+    const severity = Math.min(1, (value - 2000) / 2000)
     const stripeOpacity = (0.2 + severity * 0.5).toFixed(2)
-    // Stripe width: 3px at 1000ms → 7px at 3000ms+
     const stripeWidth = Math.round(3 + severity * 4)
     const gapWidth = 6
     return {
