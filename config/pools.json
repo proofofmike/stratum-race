@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_utc": "2026-07-11T00:00:00Z",
+  "updated_utc": "2026-08-17T06:04:59Z",
   "pools": [
     {
       "name": "ocean",
@@ -107,6 +107,42 @@
       "pool_type": "solo",
       "groups": [
         "all"
+      ]
+    },
+    {
+      "name": "minerium_east",
+      "display_name": "Minerium East",
+      "host": "east.minerium.us",
+      "port": 3334,
+      "operator": "Minerium",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "minerium_center",
+      "display_name": "Minerium Center",
+      "host": "center.minerium.us",
+      "port": 3334,
+      "operator": "Minerium",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
+      ]
+    },
+    {
+      "name": "minerium_west",
+      "display_name": "Minerium West",
+      "host": "west.minerium.us",
+      "port": 3334,
+      "operator": "Minerium",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "americas"
       ]
     },
     {
