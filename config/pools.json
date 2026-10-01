@@ -1258,6 +1258,47 @@
       "mempool_slugs": [
         "braiinssolo"
       ]
+    },
+    {
+      "name": "btc_pow_lab",
+      "display_name": "BTC PoW Lab",
+      "host": "stratum.btcpowlab-pool.com",
+      "port": 3333,
+      "operator": "BTC PoW Lab",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe",
+        "solo"
+      ],
+      "payout_type": "Hybrid Solo",
+      "fee_pct": 5,
+      "website_url": "https://btcpowlab-pool.com/",
+      "location": "Germany",
+      "stratum_endpoints": [
+        {
+          "host": "stratum.btcpowlab-pool.com",
+          "port": 3333
+        }
+      ],
+      "features": {
+        "tls": false,
+        "lightning": false,
+        "tor": false,
+        "sv2": false
+      },
+      "notes": "Hybrid Solo allocation with 85% for the finder, 10% for eligible community miners, and 5% for the operator.",
+      "first_added_utc": "2026-09-24T00:00:00Z",
+      "tagline": "Hybrid Solo Bitcoin Mining",
+      "description": "BTC PoW Lab is a Germany-hosted Bitcoin pool for home miners and SHA-256 ASICs. The finder receives 85% of an accepted block, 10% is allocated to other eligible miners based on accepted work, and 5% goes to the operator.",
+      "founded": "2026",
+      "payout_method": "Hybrid Solo coinbase allocation. The finder receives 85%, eligible community miners share 10%, and the operator receives 5%.",
+      "geographic_presence": "Germany",
+      "fees": {
+        "Hybrid Solo": 5
+      },
+      "stats_api": "https://btcpowlab-pool.com/public/v1/pool",
+      "stats_api_type": "btcpowlab"
     }
   ]
 }

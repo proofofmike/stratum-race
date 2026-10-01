@@ -270,6 +270,21 @@ def parse_helios(data: dict) -> dict:
         "miner_types": None,
     }
 
+def parse_btcpowlab(data: dict) -> dict:
+    """BTC PoW Lab public pool summary; hashrate values are in TH/s."""
+    pool = data.get("pool", {})
+    economics = data.get("economics", {})
+    hr_hs = float(pool.get("hashrate_1h_ths", pool.get("hashrate_5m_ths", 0))) * 1e12
+    lab_bp = economics.get("lab_bp")
+    return {
+        "hashrate_value": hr_hs,
+        "hashrate_formatted": format_hashrate(hr_hs),
+        "active_users": pool.get("active_miners"),
+        "active_workers": pool.get("active_workers"),
+        "pool_fee": float(lab_bp) / 100 if lab_bp is not None else None,
+        "miner_types": None,
+    }
+
 PARSERS = {
     "atlaspool": lambda raw: parse_atlaspool(json.loads(raw)),
     "ckpool": parse_ckpool,  # takes raw string (multi-line)
@@ -287,6 +302,7 @@ PARSERS = {
     "antpool": lambda raw: parse_antpool(json.loads(raw)),
     "spiderpool": lambda raw: parse_spiderpool(json.loads(raw)),
     "helios": lambda raw: parse_helios(json.loads(raw)),
+    "btcpowlab": lambda raw: parse_btcpowlab(json.loads(raw)),
 }
 def fetch_pool_stats(url: str, api_type: str) -> dict:
 
