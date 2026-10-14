@@ -202,11 +202,13 @@ def parse_ocean(raw: str) -> dict:
 def parse_solopool(data: dict) -> dict:
     hr_str = data.get("hashrate5m", "0")
     hr = parse_ck_hashrate(str(hr_str))
+    # workers is omitted: the API reports ~12k workers against ~100 users
+    # (~120 per user), which counts stratum connections rather than devices.
     return {
         "hashrate_value": hr,
         "hashrate_formatted": format_hashrate(hr),
         "active_users": data.get("active_users"),
-        "active_workers": data.get("active_workers"),
+        "active_workers": None,
         "pool_fee": None,
         "miner_types": None,
     }

@@ -21,7 +21,7 @@ Run the collector directly for terminal-based race results. No web server, no br
 ```bash
 git clone https://github.com/proofofmike/stratum-race.git
 cd stratum-race
-python3 collector/str_race.py --pools config/pools.json --tag-block-miners
+python3 collector/str_race.py --pool-config config/pools.json --tag-block-miners
 ```
 
 That's it. The script connects to all configured pools, establishes a baseline, and prints race results as blocks are found (~every 10 minutes).
@@ -43,10 +43,11 @@ Each race shows which pool delivered a full block template first (offset = 0ms) 
 
 | Flag | Description |
 |------|-------------|
-| `--pools config/pools.json` | Pool configuration file (required) |
+| `--pool-config config/pools.json` | Pool configuration file (required) |
 | `--tag-block-miners` | Look up block height and miner from mempool.space after each race |
 | `--duration 3600` | Run for N seconds then exit (default: 0 = run forever) |
-| `--pool-group solo` | Only connect to pools in the "solo" group |
+| `--pool-group americas` | Only connect to pools in a given group (`all`, `americas`, `asia`, `europe`) |
+| `--show-any` | Also print the any-template ranking (counts empty-template leads as wins) |
 | `--json-out results.json` | Write structured JSON results on exit |
 | `--csv-out results.csv` | Write CSV summary on exit |
 | `--verbose` | Print full pool table and per-race detail |
@@ -58,7 +59,7 @@ To run continuously on a server:
 ```bash
 # Run forever, tag miners, log to file
 nohup python3 collector/str_race.py \
-    --pools config/pools.json \
+    --pool-config config/pools.json \
     --tag-block-miners \
     --json-out ~/races.json \
     > ~/stratum-race.log 2>&1 &
@@ -74,7 +75,7 @@ Or with a fixed duration (e.g., 24 hours):
 
 ```bash
 nohup python3 collector/str_race.py \
-    --pools config/pools.json \
+    --pool-config config/pools.json \
     --tag-block-miners \
     --duration 86400 \
     --json-out ~/races-24h.json \
@@ -156,7 +157,7 @@ Access from any machine on your network at `http://<your-ip>:8080`.
 
 ## Pool Configuration
 
-The included `config/pools.json` connects to 34 major mining pools. Customize it:
+The included `config/pools.json` connects to 29 major mining pools. Customize it:
 
 ```json
 {
