@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { PoolHistoryPoint } from '@/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   data: PoolHistoryPoint[]
   metric: 'hashrate' | 'users' | 'workers'
   loading: boolean
   poolName: string
-}>()
+  hasWorkers?: boolean
+}>(), {
+  hasWorkers: true,
+})
 
 const emit = defineEmits<{
   'range-change': [range: string]
@@ -22,6 +25,18 @@ function selectRange(r: string) {
   selectedRange.value = r
   emit('range-change', r)
 }
+
+// If the Workers tab is hidden for this pool but it's somehow the active
+// metric, fall back to Hashrate so the chart never sits on a hidden tab.
+watch(
+  () => props.hasWorkers,
+  (has) => {
+    if (!has && props.metric === 'workers') {
+      emit('metric-change', 'hashrate')
+    }
+  },
+  { immediate: true },
+)
 
 const metricLabel = computed(() => {
   switch (props.metric) {
@@ -182,6 +197,7 @@ function formatTooltipDate(ts: number): string {
           @click="emit('metric-change', 'users')"
         >Users</button>
         <button
+          v-if="hasWorkers"
           :class="{ active: metric === 'workers' }"
           @click="emit('metric-change', 'workers')"
         >Workers</button>

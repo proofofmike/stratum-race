@@ -98,6 +98,11 @@ async function loadChartData() {
 const blocksFound = computed<number | null>(() => snap.value?.blocks_found ?? null)
 const recentPoolBlocks = computed<any[]>(() => snap.value?.recent_blocks ?? [])
 
+// Whether this pool exposes a worker count. Some pool APIs report no usable
+// worker number (e.g. SoloPool, whose API counts stratum connections, not
+// devices), so the Workers chart tab is hidden rather than showing a flat zero.
+const hasWorkers = computed<boolean>(() => (snap.value?.active_workers ?? null) !== null)
+
 function formatBlockAge(ts: number | null): string {
   if (!ts) return ''
   const diff = Math.floor(Date.now() / 1000) - ts
@@ -458,6 +463,7 @@ const poolRank = computed<number | null>(() => {
             :metric="chartMetric"
             :loading="chartLoading"
             :pool-name="poolName"
+            :has-workers="hasWorkers"
             @range-change="r => { chartRange = r; loadChartData() }"
             @metric-change="m => { chartMetric = m as any; loadChartData() }"
           />
