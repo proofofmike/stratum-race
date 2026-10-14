@@ -88,18 +88,40 @@ function formatYTick(val: number): string {
   return Math.round(val).toString()
 }
 
-// X-axis ticks (5 evenly spaced)
+// X-axis ticks: evenly spaced across the full data range (including the last
+// point), so ticks always span the whole plotted width even with few points.
 const xTicks = computed(() => {
-  if (!points.value.length) return []
-  const count = 5
-  const step = Math.floor(points.value.length / count)
-  return Array.from({ length: count }, (_, i) => points.value[i * step])
-    .filter(Boolean)
+  const pts = points.value
+  if (!pts.length) return []
+  if (pts.length === 1) return [pts[0]]
+  const count = Math.min(5, pts.length)
+  const lastIdx = pts.length - 1
+  const seen = new Set<number>()
+  const ticks: typeof pts = []
+  for (let i = 0; i < count; i++) {
+    const idx = Math.round((i / (count - 1)) * lastIdx)
+    if (!seen.has(idx)) {
+      seen.add(idx)
+      ticks.push(pts[idx])
+    }
+  }
+  return ticks
+})
+
+// True when every plotted point falls on the same UTC calendar day — e.g. a
+// fresh pool or one whose history was recently reset. In that case all date
+// labels would read identically, so we show the time instead.
+const allSameDay = computed(() => {
+  const pts = points.value
+  if (pts.length < 2) return true
+  const dayOf = (ts: number) => new Date(ts * 1000).toISOString().slice(0, 10)
+  const first = dayOf(pts[0].timestamp)
+  return pts.every(p => dayOf(p.timestamp) === first)
 })
 
 function formatXTick(ts: number): string {
   const d = new Date(ts * 1000)
-  if (selectedRange.value === '24h') {
+  if (selectedRange.value === '24h' || allSameDay.value) {
     return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' })
   }
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
