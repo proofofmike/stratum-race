@@ -44,7 +44,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 
 DEFAULT_POOLS: List[Tuple[str, str, int]] = [
@@ -260,6 +260,17 @@ class PoolState:
     delays: List[float] = field(default_factory=list)         # non-winner (chase) delays only
     all_arrival_offsets: List[float] = field(default_factory=list)  # includes winner 0.0 and losses
 
+    # Full-template results. Same as above but timed on each pool's first
+    # non-empty template, relative to the first full template in the race.
+    # Counted once at race close, when every full template has had the whole
+    # confirm window to land.
+    ft_wins: int = 0
+    ft_losses: int = 0
+    ft_delays: List[float] = field(default_factory=list)          # non-winner (chase) delays only
+    ft_all_arrival_offsets: List[float] = field(default_factory=list)  # includes winner 0.0 and losses
+    empty_first_count: int = 0  # confirmed races where this pool's first notify was empty
+    empty_only_count: int = 0   # ...of which no full template arrived before race close
+
     # Race/state anomalies.
     unmatched: int = 0          # observed notifies that never matched a second pool
     stale_repeats: int = 0      # clean=true prevhash already seen/closed
@@ -330,6 +341,7 @@ class Race:
     closed: bool = False
     counted: Set[str] = field(default_factory=set)
     missed_counted: bool = False
+    full_template_counted: bool = False
 
     # Optional post-run enrichment only. These fields are never populated from
     # the live timing path.
@@ -406,6 +418,34 @@ class RaceTracker:
 
         race.missed_counted = True
 
+    def _count_full_template(self, race: Race, pools: Dict[str, PoolState]) -> None:
+        # Runs at race close, not on arrival: an empty-first pool's full
+        # template usually lands after the race is confirmed, and counting it
+        # earlier would drop it.
+        if race.full_template_counted:
+            return
+
+        if not race.confirmed:
+            return
+
+        for pool_name in race.empty_first:
+            pools[pool_name].empty_first_count += 1
+            if pool_name not in race.nonempty_arrivals:
+                pools[pool_name].empty_only_count += 1
+
+        winner = race.nonempty_winner()
+        for pool_name, offset in race.nonempty_arrival_offsets_ms().items():
+            p = pools[pool_name]
+            p.ft_all_arrival_offsets.append(offset)
+
+            if pool_name == winner:
+                p.ft_wins += 1
+            else:
+                p.ft_losses += 1
+                p.ft_delays.append(offset)
+
+        race.full_template_counted = True
+
     def cleanup_races(self, pools: Dict[str, PoolState], force: bool = False) -> List[Race]:
         now = loop_time()
         just_closed_confirmed: List[Race] = []
@@ -418,6 +458,7 @@ class RaceTracker:
                 pools[race.first_pool].unmatched += 1
             else:
                 self._count_misses(race, pools)
+                self._count_full_template(race, pools)
                 just_closed_confirmed.append(race)
 
             race.closed = True
@@ -429,9 +470,11 @@ class RaceTracker:
         self.cleanup_races(pools, force=True)
 
         # Also count misses for confirmed races that were already removed before the
-        # final report. This is idempotent because each Race has missed_counted.
+        # final report. This is idempotent because each Race has missed_counted
+        # and full_template_counted.
         for race in self.all_races:
             self._count_misses(race, pools)
+            self._count_full_template(race, pools)
 
     def _all_have_same_prevhash(self, pools: Dict[str, PoolState]) -> Tuple[bool, Optional[str]]:
         if any(p.current_prevhash is None for p in pools.values()):
@@ -932,11 +975,11 @@ def print_block_miner_summary(races: List[Race]) -> None:
         grouped[race.block_miner or "Unknown"].append(race)
 
     for miner, miner_races in sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        winner_counts = Counter(r.first_pool for r in miner_races)
+        winner_counts = Counter(r.nonempty_winner() or "(empty-only)" for r in miner_races)
         top_winner, top_wins = winner_counts.most_common(1)[0]
         spreads = []
         for race in miner_races:
-            offsets = list(race.arrival_offsets_ms().values())
+            offsets = list(race.nonempty_arrival_offsets_ms().values())
             if len(offsets) >= 2:
                 spreads.append(max(offsets) - min(offsets))
 
@@ -955,7 +998,10 @@ def print_block_miner_summary(races: List[Race]) -> None:
 
     print("\nBLOCK MINER TAG DETAIL:")
     for miner, miner_races in sorted(grouped.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        winner_text = ", ".join(f"{name}={count}" for name, count in Counter(r.first_pool for r in miner_races).most_common())
+        winner_text = ", ".join(
+            f"{name}={count}"
+            for name, count in Counter(r.nonempty_winner() or "(empty-only)" for r in miner_races).most_common()
+        )
         print(f"  {miner}: races={len(miner_races)} winners: {winner_text}")
 
 def delay_stats(values: Sequence[float]) -> Dict[str, Optional[float]]:
@@ -1011,12 +1057,12 @@ def print_pool_table(pools: Dict[str, PoolState]) -> None:
     print("-" * len(header))
 
     for p in pools.values():
-        stats = delay_stats(p.all_arrival_offsets)
+        stats = delay_stats(p.ft_all_arrival_offsets)
 
         row = [
             p.name.ljust(12),
-            str(p.wins).rjust(5),
-            str(p.losses).rjust(5),
+            str(p.ft_wins).rjust(5),
+            str(p.ft_losses).rjust(5),
             str(p.seen).rjust(5),
             str(p.missed).rjust(5),
             fnum(stats["avg"]).rjust(8),
@@ -1048,42 +1094,130 @@ def print_race_detail(races: List[Race], limit: Optional[int] = None) -> None:
         print("\nPER-RACE DETAIL: none")
         return
 
-    print("\nPER-RACE DETAIL:")
+    print("\nPER-RACE DETAIL:  (full template; * = sent empty first)")
     for race in selected:
         status = "confirmed" if race.confirmed else "unmatched notify"
-        arrivals = sorted(race.arrival_offsets_ms().items(), key=lambda kv: kv[1])
-        arrival_text = ", ".join(f"{name} +{delay:.1f}ms" for name, delay in arrivals)
+        arrival_text = full_template_arrival_text(race)
         missed = race.missed_pools() if race.confirmed else []
         missed_text = f" | missed: {', '.join(missed)}" if missed else ""
         print(
             f"{race.index:>3}. {short_hash(race.prevhash)} {status:<16} "
-            f"winner={race.first_pool:<12} arrivals: {arrival_text}{missed_text}"
+            f"winner={full_template_winner_text(race)} arrivals: {arrival_text}{missed_text}"
         )
 
 
-def print_rankings(pools: Dict[str, PoolState], confirmed_count: int) -> None:
+def full_template_winner_text(race: Race) -> str:
+    """Full-template winner, noting the any-template leader when it differs.
+
+    The two differ only when the first pool to notify sent an empty template.
+    """
+    winner = race.nonempty_winner()
+    if winner is None:
+        return f"{'(empty-only)':<12} [{race.first_pool} empty]"
+    if winner != race.first_pool:
+        return f"{winner:<12} [{race.first_pool} empty]"
+    return f"{winner:<12}"
+
+
+def full_template_arrival_text(race: Race, limit: Optional[int] = None) -> str:
+    """Arrivals ordered by full-template offset, then any empty-only pools."""
+    arrivals = sorted(race.nonempty_arrival_offsets_ms().items(), key=lambda kv: kv[1])
+    parts = [
+        f"{name}{'*' if name in race.empty_first else ''} +{delay:.1f}ms"
+        for name, delay in arrivals
+    ]
+    empty_only = sorted(set(race.arrivals) - set(race.nonempty_arrivals))
+    parts += [f"{name}* empty-only" for name in empty_only]
+
+    if limit is not None and len(parts) > limit:
+        # Empty-only pools sort last, so they are the first to be hidden.
+        hidden = len(parts) - limit
+        hidden_empty_only = min(hidden, len(empty_only))
+        empty_only_text = f", {hidden_empty_only} empty-only" if hidden_empty_only else ""
+        return ", ".join(parts[:limit]) + f" (+{hidden} more{empty_only_text})"
+    return ", ".join(parts)
+
+
+def empty_first_footnotes(pools: Dict[str, PoolState], confirmed_count: int) -> List[str]:
+    """One line per pool that sent an empty template first in any confirmed race."""
+    lines = []
+    for p in sorted((p for p in pools.values() if p.empty_first_count), key=lambda p: p.name):
+        only = f", {p.empty_only_count} with no full template in the window" if p.empty_only_count else ""
+        any_med = (
+            f" (any-template median {statistics.median(p.all_arrival_offsets):.1f}ms)"
+            if p.all_arrival_offsets else ""
+        )
+        lines.append(
+            f"  * {p.name} sent an empty template first in {p.empty_first_count}/{confirmed_count} races"
+            f"{only}{any_med}"
+        )
+    return lines
+
+
+def _print_ranking_rows(
+    pools: Dict[str, PoolState],
+    offsets_of: Callable[[PoolState], List[float]],
+    delays_of: Callable[[PoolState], List[float]],
+    wins_of: Callable[[PoolState], int],
+    confirmed_count: int,
+) -> None:
     def msfmt(v: Optional[float]) -> str:
         return "-" if v is None else f"{v:.1f}ms"
 
-    print("\nRANKING  (Median counts wins as 0ms; ChaseMed = median delay on races NOT won, blank if always first)")
-    print(f" {'Rk':>2}  {'Pool':<12} {'Median':>9}  {'ChaseMed':>9}  {'Seen':>4}  {'Wins':>4}")
+    print(f" {'Rk':>2}  {'Pool':<13} {'Median':>9}  {'ChaseMed':>9}  {'Seen':>4}  {'Wins':>4}")
 
     ranked = [
-        (statistics.median(p.all_arrival_offsets), p)
+        (statistics.median(offsets_of(p)), p)
         for p in pools.values()
-        if p.all_arrival_offsets
+        if offsets_of(p)
     ]
     for rank, (median_delay, p) in enumerate(sorted(ranked, key=lambda x: x[0]), 1):
-        chase_med = statistics.median(p.delays) if p.delays else None
+        delays = delays_of(p)
+        chase_med = statistics.median(delays) if delays else None
+        name = p.name + ("*" if p.empty_first_count else "")
         print(
-            f" {rank:>2}  {p.name:<12} {msfmt(median_delay):>9}  {msfmt(chase_med):>9}  "
-            f"{f'{p.seen}/{confirmed_count}':>4}  {p.wins:>4}"
+            f" {rank:>2}  {name:<13} {msfmt(median_delay):>9}  {msfmt(chase_med):>9}  "
+            f"{f'{len(offsets_of(p))}/{confirmed_count}':>4}  {wins_of(p):>4}"
         )
+
+
+def print_rankings(pools: Dict[str, PoolState], confirmed_count: int, show_any: bool = False) -> None:
+    print(
+        "\nRANKING  (Full template. Median counts wins as 0ms; ChaseMed = median delay on races NOT won, "
+        "blank if always first)"
+    )
+    _print_ranking_rows(
+        pools,
+        lambda p: p.ft_all_arrival_offsets,
+        lambda p: p.ft_delays,
+        lambda p: p.ft_wins,
+        confirmed_count,
+    )
+
+    never_full = sorted(p.name for p in pools.values() if p.seen and not p.ft_all_arrival_offsets)
+    if never_full:
+        print(f"\n  Not ranked (never sent a full template within the confirm window): {', '.join(never_full)}")
+
+    footnotes = empty_first_footnotes(pools, confirmed_count)
+    if footnotes:
+        print()
+        for line in footnotes:
+            print(line)
 
     print(
         "\n  high wins + low chase = dominant and fast. High wins + high chase = bimodal "
         "(wins when it wins, far behind otherwise), the signature of a geography/peering effect."
     )
+
+    if show_any:
+        print("\nRANKING  (Any template, including empty-template leads. For comparison only)")
+        _print_ranking_rows(
+            pools,
+            lambda p: p.all_arrival_offsets,
+            lambda p: p.delays,
+            lambda p: p.wins,
+            confirmed_count,
+        )
 
 
 
@@ -1111,18 +1245,18 @@ def print_full_timing_table(pools: Dict[str, PoolState], confirmed_count: int) -
     ranked = sorted(
         pools.values(),
         key=lambda p: (
-            statistics.median(p.all_arrival_offsets) if p.all_arrival_offsets else float("inf"),
+            statistics.median(p.ft_all_arrival_offsets) if p.ft_all_arrival_offsets else float("inf"),
             p.name,
         ),
     )
 
     for p in ranked:
-        stats = delay_stats(p.all_arrival_offsets)
+        stats = delay_stats(p.ft_all_arrival_offsets)
 
         row = [
             p.name.ljust(12),
-            str(p.wins).rjust(5),
-            f"{p.seen}/{confirmed_count}".rjust(7),
+            str(p.ft_wins).rjust(5),
+            f"{len(p.ft_all_arrival_offsets)}/{confirmed_count}".rjust(7),
             str(p.missed).rjust(5),
             fnum(stats["avg"]).rjust(8),
             fnum(stats["median"]).rjust(8),
@@ -1182,6 +1316,15 @@ def pool_summary_dict(p: PoolState) -> Dict[str, Any]:
         "missed": p.missed,
         "arrival_offset_ms": stats,
         "non_winner_delay_ms": nonwin_stats,
+        # Full-template equivalents: timed on each pool's first non-empty
+        # template, relative to the race's first full template.
+        "ft_wins": p.ft_wins,
+        "ft_losses": p.ft_losses,
+        "ft_seen": len(p.ft_all_arrival_offsets),
+        "ft_arrival_offset_ms": delay_stats(p.ft_all_arrival_offsets),
+        "ft_non_winner_delay_ms": delay_stats(p.ft_delays),
+        "empty_first_races": p.empty_first_count,
+        "empty_only_races": p.empty_only_count,
         "unmatched": p.unmatched,
         "stale_repeats": p.stale_repeats,
         "unstable": p.unstable,
@@ -1269,12 +1412,18 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
             "remote_closes", "connect_timeouts", "connect_errors", "notify_total",
             "clean_true", "clean_false", "noise_repeats", "noise_prevhash_changes",
             "parse_errors", "bad_notify",
+            "ft_wins", "ft_losses", "ft_seen",
+            "ft_avg_ms", "ft_median_ms", "ft_p95_ms", "ft_stddev_ms", "ft_best_ms", "ft_worst_ms",
+            "ft_chase_median_ms", "ft_chase_avg_ms", "ft_chase_p95_ms",
+            "empty_first_races", "empty_only_races",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for p in pools.values():
             stats = delay_stats(p.all_arrival_offsets)
             chase = delay_stats(p.delays)
+            ft_stats = delay_stats(p.ft_all_arrival_offsets)
+            ft_chase = delay_stats(p.ft_delays)
             writer.writerow({
                 "pool": p.name,
                 "host": p.host,
@@ -1311,6 +1460,20 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
                 "noise_prevhash_changes": p.noise_prevhash_changes,
                 "parse_errors": p.parse_errors,
                 "bad_notify": p.bad_notify,
+                "ft_wins": p.ft_wins,
+                "ft_losses": p.ft_losses,
+                "ft_seen": len(p.ft_all_arrival_offsets),
+                "ft_avg_ms": ft_stats["avg"],
+                "ft_median_ms": ft_stats["median"],
+                "ft_p95_ms": ft_stats["p95"],
+                "ft_stddev_ms": ft_stats["stddev"],
+                "ft_best_ms": ft_stats["best"],
+                "ft_worst_ms": ft_stats["worst"],
+                "ft_chase_median_ms": ft_chase["median"],
+                "ft_chase_avg_ms": ft_chase["avg"],
+                "ft_chase_p95_ms": ft_chase["p95"],
+                "empty_first_races": p.empty_first_count,
+                "empty_only_races": p.empty_only_count,
             })
 
     with race_path.open("w", newline="") as f:
@@ -1318,11 +1481,14 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
             "index", "prevhash", "block_height", "block_miner", "confirmed", "winner",
             "first_wall", "first_epoch", "first_utc",
             "pool", "offset_ms", "eligible_at_start", "missed_pools",
+            "winner_nonempty", "nonempty_offset_ms", "empty_first",
         ]
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for r in races:
             offsets = r.arrival_offsets_ms()
+            ft_offsets = r.nonempty_arrival_offsets_ms()
+            winner_nonempty = r.nonempty_winner()
             for pool_name, offset in sorted(offsets.items(), key=lambda kv: kv[1]):
                 writer.writerow({
                     "index": r.index,
@@ -1338,6 +1504,9 @@ def write_csv(prefix_or_path: str, pools: Dict[str, PoolState], races: List[Race
                     "offset_ms": offset,
                     "eligible_at_start": ";".join(sorted(r.eligible_at_start)),
                     "missed_pools": ";".join(r.missed_pools() if r.confirmed else []),
+                    "winner_nonempty": winner_nonempty,
+                    "nonempty_offset_ms": ft_offsets.get(pool_name),
+                    "empty_first": pool_name in r.empty_first,
                 })
 
     return str(pool_path), str(race_path)
@@ -1352,6 +1521,7 @@ def print_final_report(
     verbose: bool = False,
     debug: bool = False,
     full_timing: bool = False,
+    show_any: bool = False,
 ) -> None:
     confirmed = [r for r in races if r.confirmed]
     unmatched_observed_notifies = [r for r in races if not r.confirmed]
@@ -1387,7 +1557,7 @@ def print_final_report(
             if p.subscribe_failed:
                 print(f"  {p.name:<12} subscribe rejected: {p.subscribe_error}")
 
-    print_rankings(pools, len(confirmed))
+    print_rankings(pools, len(confirmed), show_any=show_any)
 
     if full_timing:
         print_full_timing_table(pools, len(confirmed))
@@ -1417,20 +1587,18 @@ def print_final_report(
 
     selected = confirmed[-race_limit:] if race_limit and race_limit > 0 else confirmed
 
-    print("\nPER-RACE TIMING:")
+    print("\nPER-RACE TIMING:  (full template; * = sent empty first)")
     if not selected:
         print("  none")
     else:
         for race in selected:
-            arrivals = sorted(race.arrival_offsets_ms().items(), key=lambda kv: kv[1])
-            top = ", ".join(f"{name} +{delay:.1f}ms" for name, delay in arrivals[:3])
-            more = f" (+{len(arrivals) - 3} more)" if len(arrivals) > 3 else ""
+            top = full_template_arrival_text(race, limit=3)
             miner = race.block_miner or ""
             miner_text = f" mined_by={miner:<18} " if miner else " "
             height_text = f"height={race.block_height} " if race.block_height is not None else ""
             print(
-                f"  {race.index:>3}. {height_text}{short_hash(race.prevhash)}{miner_text}winner={race.first_pool:<12} "
-                f"{top}{more}"
+                f"  {race.index:>3}. {height_text}{short_hash(race.prevhash)}{miner_text}winner={full_template_winner_text(race)} "
+                f"{top}"
             )
 
     print_block_miner_summary(confirmed)
@@ -1459,7 +1627,11 @@ def print_final_report(
                 f"first_notify={p.first_notify_at_wall or 'N/A'} last_notify={p.last_notify_at_wall or 'N/A'}"
             )
 
-        print("\nDEBUG ARRIVAL OFFSETS INCLUDING WINS (raw ms; sub-ms is noise):")
+        print("\nDEBUG FULL-TEMPLATE ARRIVAL OFFSETS INCLUDING WINS (raw ms; sub-ms is noise):")
+        for pool_name, p in pools.items():
+            print(pool_name, p.ft_all_arrival_offsets)
+
+        print("\nDEBUG ANY-TEMPLATE ARRIVAL OFFSETS INCLUDING WINS (raw ms; sub-ms is noise):")
         for pool_name, p in pools.items():
             print(pool_name, p.all_arrival_offsets)
 
@@ -1482,30 +1654,34 @@ def print_final_report(
         print("  blockhash  = stratum prevhash transformed to canonical explorer hash; height/miner are post-run lookups")
         print("  reconnects = established session ended and reconnected: read timeout, remote close, or other disconnect")
         print("  noise      = clean=false same-prevhash notify/template refresh")
+        print("  full tmpl  = rankings time each pool's first non-empty template, relative to the race's first one")
+        print("  empty *    = pool's first notify for the race was an empty template; its full template is what counts")
 
     # One-line headline result at the very end for quick scanning.
     if confirmed:
         ranked = sorted(
-            [(statistics.median(p.all_arrival_offsets), p) for p in pools.values() if p.all_arrival_offsets],
+            [(statistics.median(p.ft_all_arrival_offsets), p) for p in pools.values() if p.ft_all_arrival_offsets],
             key=lambda x: x[0],
         )
         if len(ranked) >= 2:
-            _, first = ranked[0]
-            _, second = ranked[1]
-            first_med = statistics.median(first.all_arrival_offsets)
-            second_med = statistics.median(second.all_arrival_offsets)
+            first_med, first = ranked[0]
+            second_med, second = ranked[1]
             print(
-                f"\nRESULT: {first.name} 1st (median {first_med:.1f}ms), "
+                f"\nRESULT: {first.name} 1st (full template, median {first_med:.1f}ms), "
                 f"{second.name} 2nd (median {second_med:.1f}ms) over {len(confirmed)} races.",
                 flush=True,
             )
         elif len(ranked) == 1:
-            _, first = ranked[0]
-            first_med = statistics.median(first.all_arrival_offsets)
+            first_med, first = ranked[0]
             print(
-                f"\nRESULT: {first.name} 1st (median {first_med:.1f}ms) over {len(confirmed)} races.",
+                f"\nRESULT: {first.name} 1st (full template, median {first_med:.1f}ms) over {len(confirmed)} races.",
                 flush=True,
             )
+
+        # Repeat the empty-first footnotes so a reader scanning only the
+        # bottom line still sees which pools led with empty templates.
+        for line in empty_first_footnotes(pools, len(confirmed)):
+            print(line, flush=True)
 
 
 def send_json(writer: asyncio.StreamWriter, obj: object) -> None:
@@ -2608,6 +2784,7 @@ async def run(args: argparse.Namespace, race_sink=None, stop_event=None) -> None
         verbose=args.verbose,
         debug=args.debug,
         full_timing=args.full_timing,
+        show_any=getattr(args, "show_any", False),
     )
 
     if args.json_out:
@@ -2637,6 +2814,7 @@ def main() -> None:
     parser.add_argument("--race-limit", type=int, default=0, help="Limit per-race detail printed; 0 prints all races")
     parser.add_argument("--verbose", action="store_true", help="Print full pool table and full per-race detail")
     parser.add_argument("--full-timing", action="store_true", help="Print compact timing table for all pools")
+    parser.add_argument("--show-any", action="store_true", help="Also print the any-template ranking (counts empty-template leads as wins) for comparison")
     parser.add_argument("--tag-block-miners", action="store_true", help="After timing stops, look up block height/miner tags from mempool.space and include them in the report/export")
     parser.add_argument("--debug", action="store_true", help="Print connection detail, runtime info, and raw timing arrays")
 

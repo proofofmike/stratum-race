@@ -1086,7 +1086,7 @@
       "mempool_slugs": [
         "solopoolcom"
       ],
-      "stats_api": "https://solopool.com/test-mainnetapi.php",
+      "stats_api": "https://solopool.com/web-api.php?endpoint=pool/mainnet",
       "stats_api_type": "solopool"
     },
     {

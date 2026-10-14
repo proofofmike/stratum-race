@@ -129,9 +129,9 @@
         </p>
         <p>
           The current platform was redesigned and rebuilt by
-          <a href="https://proofofmike.com" target="_blank" rel="noopener">Mike</a>
+          <a href="https://proofofmike.com" target="_blank" rel="noopener">Mike (ProofOfMike)</a>
           and
-          <a href="https://atlaspool.io" target="_blank" rel="noopener">Matt</a>,
+          <a href="https://atlaspool.io" target="_blank" rel="noopener">Matt (AtlasPool.io)</a>,
           expanding the original tool into the multi-vantage measurement and analytics platform
           available today.
         </p>

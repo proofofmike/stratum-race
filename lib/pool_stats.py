@@ -200,15 +200,13 @@ def parse_ocean(raw: str) -> dict:
         "miner_types": None,
     }
 def parse_solopool(data: dict) -> dict:
-
-    pool = data.get("pool", {})
-    header = pool.get("pool_header", {})
-    hr = pool.get("total_hashrate1h", pool.get("total_hashrate5m", 0))
+    hr_str = data.get("hashrate5m", "0")
+    hr = parse_ck_hashrate(str(hr_str))
     return {
         "hashrate_value": hr,
         "hashrate_formatted": format_hashrate(hr),
-        "active_users": header.get("active_users"),
-        "active_workers": header.get("active_workers"),
+        "active_users": data.get("active_users"),
+        "active_workers": data.get("active_workers"),
         "pool_fee": None,
         "miner_types": None,
     }
