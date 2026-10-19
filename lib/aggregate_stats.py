@@ -10,7 +10,7 @@ and any-template modes.
 import math
 import statistics
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Constants from the existing aggregate.py
 BLOCK_INTERVAL_MS = 600_000.0
@@ -106,11 +106,17 @@ def compute_stats(acc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def compute_aggregate(
-    races: List[Dict[str, Any]], label: str, generated_at: datetime
+    races: List[Dict[str, Any]], label: str, generated_at: datetime,
+    allowed_pools: Optional[set] = None,
 ) -> Dict[str, Any]:
     """Compute per-pool statistics from a set of race results.
 
     Returns the daily aggregate structure with combined and per-vantage breakdowns.
+
+    When allowed_pools is provided, only pools in that set appear in the output.
+    This lets the leaderboard drop pools removed from config immediately, instead
+    of waiting for their historical races to age out of every rolling window.
+    Historical race files are left untouched; only the aggregate output is filtered.
     """
     if not races:
         return {
@@ -248,6 +254,8 @@ def compute_aggregate(
     # Build output pools dict with both full and any template stats
     pools_output: Dict[str, Any] = {}
     all_pool_names = set(list(pool_data.keys()) + list(pool_data_any.keys()))
+    if allowed_pools is not None:
+        all_pool_names &= allowed_pools
 
     for pool_name in all_pool_names:
         # Full template stats (nonempty_arrivals_offset_ms)

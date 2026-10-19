@@ -21,7 +21,7 @@ reads and writes only through the StorageBackend protocol.
 
 import logging
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Protocol, TypedDict
+from typing import Any, Callable, Dict, List, Optional, Protocol, TypedDict
 
 from lib.aggregate_stats import compute_aggregate
 
@@ -165,6 +165,7 @@ def run_all_aggregations(
     backend: StorageBackend,
     now: datetime,
     should_continue: Callable[[], bool] = lambda: True,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute and write all aggregate files.
 
@@ -188,22 +189,22 @@ def run_all_aggregations(
     # Phase 1: Daily aggregate
     if not should_continue():
         return
-    _compute_daily_aggregate(cache, backend, now)
+    _compute_daily_aggregate(cache, backend, now, allowed_pools)
 
     # Phase 2: Recent-10 and Recent-50
     if not should_continue():
         return
-    _compute_recent_aggregates(cache, backend, now)
+    _compute_recent_aggregates(cache, backend, now, allowed_pools)
 
     # Phase 3: Time-based aggregates (last-24h, last-7d, last-30d)
     if not should_continue():
         return
-    _compute_time_based_aggregates(cache, backend, now, should_continue)
+    _compute_time_based_aggregates(cache, backend, now, should_continue, allowed_pools)
 
     # Phase 4: Monthly aggregate
     if not should_continue():
         return
-    _compute_monthly_aggregate(cache, backend, now, should_continue)
+    _compute_monthly_aggregate(cache, backend, now, should_continue, allowed_pools)
 
 
 def _load_races_for_day(
@@ -236,7 +237,8 @@ def _last_day_of_month(day: date) -> date:
 
 
 def _compute_daily_aggregate(
-    cache: _DayCache, backend: StorageBackend, now: datetime
+    cache: _DayCache, backend: StorageBackend, now: datetime,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute and write the daily aggregate for the current UTC day.
 
@@ -246,21 +248,22 @@ def _compute_daily_aggregate(
     would be permanently missing from the finalized daily file.
     """
     today = now.date()
-    _write_daily_for(cache, backend, now, today)
+    _write_daily_for(cache, backend, now, today, allowed_pools)
 
     if _in_boundary_grace(now):
-        _write_daily_for(cache, backend, now, today - timedelta(days=1))
+        _write_daily_for(cache, backend, now, today - timedelta(days=1), allowed_pools)
 
 
 def _write_daily_for(
-    cache: _DayCache, backend: StorageBackend, now: datetime, day: date
+    cache: _DayCache, backend: StorageBackend, now: datetime, day: date,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute and write the daily aggregate for a specific UTC day."""
     date_str = day.strftime("%Y-%m-%d")
     races = cache.get_races(day)
     logger.info("Daily aggregate: %d races for %s", len(races), date_str)
 
-    aggregate = compute_aggregate(races, date_str, now)
+    aggregate = compute_aggregate(races, date_str, now, allowed_pools)
     backend.write_aggregate(f"aggregates/daily/{date_str}.json", aggregate)
 
 
@@ -269,6 +272,7 @@ def _compute_monthly_aggregate(
     backend: StorageBackend,
     now: datetime,
     should_continue: Callable[[], bool] = lambda: True,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute and write the monthly aggregate for the current UTC month.
 
@@ -277,11 +281,11 @@ def _compute_monthly_aggregate(
     that month's final scheduled run are not permanently missing.
     """
     today = now.date()
-    _write_monthly_for(cache, backend, now, today, should_continue)
+    _write_monthly_for(cache, backend, now, today, should_continue, allowed_pools)
 
     if today.day == 1 and _in_boundary_grace(now):
         _write_monthly_for(
-            cache, backend, now, today - timedelta(days=1), should_continue
+            cache, backend, now, today - timedelta(days=1), should_continue, allowed_pools
         )
 
 
@@ -291,6 +295,7 @@ def _write_monthly_for(
     now: datetime,
     any_day_in_month: date,
     should_continue: Callable[[], bool] = lambda: True,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute and write the monthly aggregate for the month containing the given day.
 
@@ -317,12 +322,13 @@ def _write_monthly_for(
 
     logger.info("Monthly aggregate: %d races for %s", len(all_races), month_str)
 
-    aggregate = compute_aggregate(all_races, month_str, now)
+    aggregate = compute_aggregate(all_races, month_str, now, allowed_pools)
     backend.write_aggregate(f"aggregates/monthly/{month_str}.json", aggregate)
 
 
 def _compute_recent_aggregates(
-    cache: _DayCache, backend: StorageBackend, now: datetime
+    cache: _DayCache, backend: StorageBackend, now: datetime,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute recent-10 and recent-50 aggregates from the most recent unique blocks.
 
@@ -339,7 +345,7 @@ def _compute_recent_aggregates(
         # Write empty-but-valid aggregates for both targets
         for target_count in [10, 50]:
             label = f"recent-{target_count}"
-            aggregate = compute_aggregate([], label, now)
+            aggregate = compute_aggregate([], label, now, allowed_pools)
             aggregate["blocks"] = 0
             aggregate["type"] = label
             backend.write_aggregate(f"aggregates/{label}.json", aggregate)
@@ -380,7 +386,7 @@ def _compute_recent_aggregates(
                 races.append(all_races_by_key[key])
 
         label = f"recent-{target_count}"
-        aggregate = compute_aggregate(races, label, now)
+        aggregate = compute_aggregate(races, label, now, allowed_pools)
         aggregate["blocks"] = actual_blocks
         aggregate["type"] = label
 
@@ -395,6 +401,7 @@ def _compute_time_based_aggregates(
     backend: StorageBackend,
     now: datetime,
     should_continue: Callable[[], bool] = lambda: True,
+    allowed_pools: Optional[set] = None,
 ) -> None:
     """Compute last-24h, last-7d, and last-30d aggregates from race files
     within rolling time windows.
@@ -427,7 +434,7 @@ def _compute_time_based_aggregates(
                 if race_epoch >= cutoff_epoch:
                     all_races.append(race)
 
-        aggregate = compute_aggregate(all_races, label, now)
+        aggregate = compute_aggregate(all_races, label, now, allowed_pools)
         aggregate["type"] = label
         aggregate["hours"] = hours
 
