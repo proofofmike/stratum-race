@@ -1125,7 +1125,7 @@
       "notes": "Single geo-routed endpoint (solo-btc.2miners.com) steers each connection to the nearest of 2Miners' regional servers (EU, US, Asia).",
       "stats_api": "https://solo-btc.2miners.com/api/stats",
       "stats_api_type": "2miners",
-      "first_added_utc": "2025-01-01T00:00:00Z",
+      "first_added_utc": "2026-10-18T00:00:00Z",
       "tagline": "Global Solo Mining",
       "description": "2Miners provides dedicated Bitcoin solo mining with physical servers in Europe, the United States, and Asia, reached through a single geo-routed hostname that connects each miner to the nearest region. The pool charges 1.5% and pays accumulated balances automatically every two hours. All regions offer SSL/TLS connections. Compatible with NiceHash and Mining Rig Rentals.",
       "founded": "2017",
