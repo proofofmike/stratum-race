@@ -531,47 +531,6 @@
       "stats_api_type": "parasite"
     },
     {
-      "name": "pyblock",
-      "display_name": "PyBLOCK",
-      "host": "pool.pyblock.xyz",
-      "port": 4444,
-      "operator": "PyBLOCK",
-      "pool_type": "solo",
-      "groups": [
-        "all",
-        "americas"
-      ],
-      "payout_type": "Solo / SV2 / DATUM",
-      "fee_pct": 0.4,
-      "website_url": "https://pool.pyblock.xyz/",
-      "location": "US",
-      "stratum_endpoints": [
-        {
-          "host": "pool.pyblock.xyz",
-          "port": 4444
-        }
-      ],
-      "features": {
-        "tls": false,
-        "lightning": false,
-        "tor": false,
-        "sv2": false
-      },
-      "notes": "Registration-free solo pool that also provides a DATUM gateway for mining OCEAN templates.",
-      "first_added_utc": "2025-01-01T00:00:00Z",
-      "tagline": "Sovereign Anti-Spam Mining",
-      "description": "PyBLOCK is a non-custodial mining service focused on sovereignty and anti-spam block template policy. It offers Lotto (solo), DATUM TIDES, native Stratum V2, CHIRP, and Carousel modes \u2014 all with BIP-110 signaling variants available. The pool runs Bitcoin Knots.",
-      "founded": null,
-      "payout_method": "Direct coinbase for Lotto/SV2/CHIRP modes. OCEAN TIDES for DATUM mode.",
-      "geographic_presence": "South America (primary) and US-East (Ashburn, VA).",
-      "fees": {
-        "Solo": 0.4,
-        "SV2 & CHIRP": 0.9
-      },
-      "stats_api": "https://pool.pyblock.xyz:8443/api.php?mode=pool",
-      "stats_api_type": "pyblock"
-    },
-    {
       "name": "solomining_de",
       "display_name": "SoloMining DE",
       "host": "pool.solomining.de",
@@ -701,129 +660,6 @@
       },
       "stats_api": "https://pool.bitcoinmerch.com/api/info",
       "stats_api_type": "publicpool"
-    },
-    {
-      "name": "2miners_eu",
-      "display_name": "2Miners EU",
-      "host": "solo-btc.2miners.com",
-      "port": 2323,
-      "operator": "2Miners",
-      "pool_type": "solo",
-      "groups": [
-        "all",
-        "europe"
-      ],
-      "payout_type": "Solo",
-      "fee_pct": 1.5,
-      "website_url": "https://2miners.com/solo-btc-mining-pool",
-      "location": "EU",
-      "stratum_endpoints": [
-        {
-          "host": "solo-btc.2miners.com",
-          "port": 2323,
-          "label": "EU"
-        }
-      ],
-      "features": {
-        "tls": true,
-        "lightning": false,
-        "tor": false,
-        "sv2": false
-      },
-      "notes": "Stats shown are combined across all 2Miners regions (EU, US, Asia).",
-      "stats_api": "https://solo-btc.2miners.com/api/stats",
-      "stats_api_type": "2miners",
-      "first_added_utc": "2025-01-01T00:00:00Z",
-      "tagline": "Three-Region Solo Mining",
-      "description": "2Miners provides dedicated Bitcoin solo mining with physical servers in Europe, the United States, and Asia. The pool charges 1.5% and pays accumulated balances automatically every two hours. All regions offer SSL/TLS connections. Compatible with NiceHash and Mining Rig Rentals.",
-      "founded": "2017",
-      "payout_method": "Wallet-address account balance with automatic payout every 2 hours. Minimum 0.05 BTC. Pool covers tx fees.",
-      "geographic_presence": "Europe.",
-      "fees": {
-        "Solo": 1.5
-      }
-    },
-    {
-      "name": "2miners_us",
-      "display_name": "2Miners US",
-      "host": "us-solo-btc.2miners.com",
-      "port": 2323,
-      "operator": "2Miners",
-      "pool_type": "solo",
-      "groups": [
-        "all",
-        "americas"
-      ],
-      "payout_type": "Solo",
-      "fee_pct": 1.5,
-      "website_url": "https://2miners.com/solo-btc-mining-pool",
-      "location": "US",
-      "stratum_endpoints": [
-        {
-          "host": "us-solo-btc.2miners.com",
-          "port": 2323,
-          "label": "US"
-        }
-      ],
-      "features": {
-        "tls": true,
-        "lightning": false,
-        "tor": false,
-        "sv2": false
-      },
-      "notes": "Stats shown are combined across all 2Miners regions (EU, US, Asia).",
-      "stats_api": "https://solo-btc.2miners.com/api/stats",
-      "stats_api_type": "2miners",
-      "first_added_utc": "2025-01-01T00:00:00Z",
-      "tagline": "Three-Region Solo Mining",
-      "description": "2Miners provides dedicated Bitcoin solo mining with physical servers in Europe, the United States, and Asia. The pool charges 1.5% and pays accumulated balances automatically every two hours. All regions offer SSL/TLS connections. Compatible with NiceHash and Mining Rig Rentals.",
-      "founded": "2017",
-      "payout_method": "Wallet-address account balance with automatic payout every 2 hours. Minimum 0.05 BTC. Pool covers tx fees.",
-      "geographic_presence": "United States.",
-      "fees": {
-        "Solo": 1.5
-      }
-    },
-    {
-      "name": "2miners_asia",
-      "display_name": "2Miners Asia",
-      "host": "asia-solo-btc.2miners.com",
-      "port": 2323,
-      "operator": "2Miners",
-      "pool_type": "solo",
-      "groups": [
-        "all",
-        "asia"
-      ],
-      "payout_type": "Solo",
-      "fee_pct": 1.5,
-      "website_url": "https://2miners.com/solo-btc-mining-pool",
-      "location": "Asia",
-      "stratum_endpoints": [
-        {
-          "host": "asia-solo-btc.2miners.com",
-          "port": 2323,
-          "label": "Asia"
-        }
-      ],
-      "features": {
-        "tls": true,
-        "lightning": false,
-        "tor": false,
-        "sv2": false
-      },
-      "notes": "Stats shown are combined across all 2Miners regions (EU, US, Asia).",
-      "stats_api": "https://solo-btc.2miners.com/api/stats",
-      "stats_api_type": "2miners",
-      "first_added_utc": "2025-01-01T00:00:00Z",
-      "tagline": "Three-Region Solo Mining",
-      "description": "2Miners provides dedicated Bitcoin solo mining with physical servers in Europe, the United States, and Asia. The pool charges 1.5% and pays accumulated balances automatically every two hours. All regions offer SSL/TLS connections. Compatible with NiceHash and Mining Rig Rentals.",
-      "founded": "2017",
-      "payout_method": "Wallet-address account balance with automatic payout every 2 hours. Minimum 0.05 BTC. Pool covers tx fees.",
-      "geographic_presence": "Asia.",
-      "fees": {
-        "Solo": 1.5
-      }
     },
     {
       "name": "letsmineit",
@@ -1258,6 +1094,83 @@
       "mempool_slugs": [
         "braiinssolo"
       ]
+    },
+    {
+      "name": "2miners",
+      "display_name": "2Miners",
+      "host": "solo-btc.2miners.com",
+      "port": 2323,
+      "operator": "2Miners",
+      "pool_type": "solo",
+      "groups": [
+        "all",
+        "europe"
+      ],
+      "payout_type": "Solo",
+      "fee_pct": 1.5,
+      "website_url": "https://2miners.com/solo-btc-mining-pool",
+      "location": "Global",
+      "stratum_endpoints": [
+        {
+          "host": "solo-btc.2miners.com",
+          "port": 2323
+        }
+      ],
+      "features": {
+        "tls": true,
+        "lightning": false,
+        "tor": false,
+        "sv2": false
+      },
+      "notes": "Single geo-routed endpoint (solo-btc.2miners.com) steers each connection to the nearest of 2Miners' regional servers (EU, US, Asia).",
+      "stats_api": "https://solo-btc.2miners.com/api/stats",
+      "stats_api_type": "2miners",
+      "first_added_utc": "2025-01-01T00:00:00Z",
+      "tagline": "Global Solo Mining",
+      "description": "2Miners provides dedicated Bitcoin solo mining with physical servers in Europe, the United States, and Asia, reached through a single geo-routed hostname that connects each miner to the nearest region. The pool charges 1.5% and pays accumulated balances automatically every two hours. All regions offer SSL/TLS connections. Compatible with NiceHash and Mining Rig Rentals.",
+      "founded": "2017",
+      "payout_method": "Wallet-address account balance with automatic payout every 2 hours. Minimum 0.05 BTC. Pool covers tx fees.",
+      "geographic_presence": "Europe, United States, and Asia (geo-routed).",
+      "fees": {
+        "Solo": 1.5
+      }
+    },
+    {
+      "name": "nexuspool",
+      "display_name": "NexusPool",
+      "host": "solo.nexuspool.io",
+      "port": 3350,
+      "operator": "NexusPool",
+      "pool_type": "solo",
+      "groups": [
+        "all"
+      ],
+      "payout_type": "Solo",
+      "fee_pct": 0,
+      "website_url": "https://nexuspool.io/",
+      "location": "Global",
+      "stratum_endpoints": [
+        {
+          "host": "solo.nexuspool.io",
+          "port": 3350
+        }
+      ],
+      "features": {
+        "tls": false,
+        "lightning": false,
+        "tor": false,
+        "sv2": true
+      },
+      "notes": "Registration-free, non-custodial solo pool. Single latency-steered hostname across Los Angeles, Chicago, Frankfurt, and Singapore; Stratum V2 on all regions.",
+      "first_added_utc": "2026-10-18T00:00:00Z",
+      "tagline": "Registration-Free Solo at 0%",
+      "description": "NexusPool is a registration-free, non-custodial Bitcoin solo mining pool at 0% fee. The miner's address goes straight into the coinbase \u2014 no account, no withdrawal. A single latency-steered hostname routes each connection to the nearest of four regions (Los Angeles, Chicago, Frankfurt, Singapore), with Stratum V2 available on all of them.",
+      "founded": null,
+      "payout_method": "Direct coinbase (non-custodial). 100% of the block reward paid straight to the miner's wallet address.",
+      "geographic_presence": "Los Angeles, Chicago, Frankfurt, and Singapore (latency-routed).",
+      "fees": {
+        "Solo": 0
+      }
     }
   ]
 }

@@ -48,15 +48,12 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set,
 
 
 DEFAULT_POOLS: List[Tuple[str, str, int]] = [
-    ("ckpool",       "solo.ckpool.org",            3333),
+    ("ckpool",       "stratum.ckpool.org",         3333),
     ("atlaspool",    "solo.atlaspool.io",          3333),
-    ("public_pool",  "public-pool.io",             3333),
-    ("solofury",     "btc.solofury.com",           6060),
-    ("solo_cat",     "solo.cat",                   3333),
-    ("helios",       "btc.heliospool.com",         3333),
+    ("parasite",     "parasite.wtf",              42069),
     ("solopool_com", "stratum.solopool.com",       3333),
-    ("us_solohash",  "solo-ca.solohash.co.uk",     3333),
     ("braiins_solo", "solo.stratum.braiins.com",   3333),
+    ("helios",       "btc.heliospool.com",         3333),
 ]
 
 CONFIRM_WINDOW = 15.0
