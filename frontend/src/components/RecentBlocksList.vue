@@ -152,7 +152,7 @@ function navigateToBlock(height: number) {
                   :to="{ name: 'block-detail', params: { height: String(row.block_height) } }"
                   @click.stop
                 >
-                  {{ row.block_height.toLocaleString() }}
+                  {{ row.block_height }}
                 </router-link>
               </span>
               <span v-else class="text-muted">—</span>

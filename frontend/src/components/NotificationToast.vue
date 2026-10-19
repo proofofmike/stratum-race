@@ -96,7 +96,7 @@ onUnmounted(() => {
     >
       <div class="toast-header">
         <span class="toast-icon">⛏</span>
-        <span class="toast-block">Block #{{ activeToast.blockHeight.toLocaleString() }}</span>
+        <span class="toast-block">Block #{{ activeToast.blockHeight }}</span>
       </div>
       <div class="toast-entries">
         <div v-for="(entry, idx) in activeToast.entries" :key="idx" class="toast-entry">

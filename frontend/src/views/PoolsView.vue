@@ -430,7 +430,7 @@ function formatMedian(ms: number | null): string {
             <td class="mono">
               <span v-if="row.lastMinedHeight && row.lastMinedEpoch">
                 <a :href="`https://mempool.space/block/${row.lastMinedHeight}`" target="_blank" rel="noopener" class="block-link">
-                  #{{ row.lastMinedHeight.toLocaleString() }}
+                  #{{ row.lastMinedHeight }}
                 </a>
                 <br><span class="muted time-ago">{{ timeAgo(row.lastMinedEpoch) }}</span>
               </span>

@@ -406,7 +406,7 @@ const poolRank = computed<number | null>(() => {
             <tbody>
               <tr v-for="block in recentPoolBlocks" :key="block.height">
                 <td class="mono">
-                  <a :href="`https://mempool.space/block/${block.height}`" target="_blank" rel="noopener" class="block-link">#{{ block.height.toLocaleString() }}</a>
+                  <a :href="`https://mempool.space/block/${block.height}`" target="_blank" rel="noopener" class="block-link">#{{ block.height }}</a>
                   <span class="blocks-ago">{{ formatBlockAge(block.timestamp) }}</span>
                 </td>
                 <td class="mono">{{ block.date }}</td>
@@ -559,7 +559,7 @@ const poolRank = computed<number | null>(() => {
                 <rect v-for="(h, idx) in uniqueHeights" :key="'hover-'+h" :x="bandX(idx)" :y="CP.top" :width="bandWidth(idx)" :height="CH-CP.top-CP.bottom" fill="transparent" class="band-hover" @mouseenter="showTooltipForHeight($event,h)" @mousemove="showTooltipForHeight($event,h)" @mouseleave="hideTooltip" />
               </svg>
               <div v-if="tooltipVisible && tooltipContent" class="custom-tooltip" :style="{ left: tooltipX+12+'px', top: tooltipY-10+'px' }">
-                <div class="tooltip-header">Block {{ tooltipContent.height.toLocaleString() }}</div>
+                <div class="tooltip-header">Block {{ tooltipContent.height }}</div>
                 <div class="tooltip-miner">Mined by: {{ tooltipContent.miner }}</div>
                 <div v-for="entry in tooltipContent.entries" :key="entry.vantage" class="tooltip-row" :class="{ 'tooltip-winner': entry.isOverallWinner }">
                   <span class="tooltip-vantage">{{ formatVantage(entry.vantage) }}</span>

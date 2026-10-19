@@ -501,7 +501,7 @@ function goBack() {
     </div>
     <div v-else-if="!primaryRace && recentMatches.length === 0" class="not-found">
       <h2>Block Not Available</h2>
-      <p>Race data for block {{ blockHeight.toLocaleString() }} could not be found. It may be older than the retention window.</p>
+      <p>Race data for block {{ blockHeight }} could not be found. It may be older than the retention window.</p>
       <button @click="goBack">Return to Recent Blocks</button>
     </div>
 
@@ -510,7 +510,7 @@ function goBack() {
       <!-- Block metadata header -->
       <header class="block-header">
         <div class="title-row">
-          <h2 class="block-title">Block {{ blockHeight.toLocaleString() }}</h2>
+          <h2 class="block-title">Block {{ blockHeight }}</h2>
         </div>
         <div class="metadata-grid">
           <div class="meta-item">

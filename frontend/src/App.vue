@@ -70,7 +70,7 @@ const currentYear = new Date().getFullYear()
               target="_blank"
               rel="noopener"
               class="block-link"
-            >#{{ lastBlockHeight.toLocaleString() }}</a>
+            >#{{ lastBlockHeight }}</a>
             <span class="block-time">{{ lastBlockText }}</span>
           </span>
         </div>
