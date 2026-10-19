@@ -72,6 +72,17 @@ DEFAULT_BASELINE_TIMEOUT = 120.0
 BLOCK_MINER_LOOKUP_TIMEOUT = 8.0
 MEMPOOL_API_BASE = "https://mempool.space/api"
 
+# Minimum leading-zero hex prefix a real block hash must have. Bitcoin's PoW has
+# guaranteed far more than 32 leading zero bits for well over a decade (today the
+# target requires ~100+), so 8 zero hex chars is an enormous safety margin below
+# the real difficulty yet rejects sentinel/garbage prevhashes like all-f's or
+# all-zeros. Deliberately conservative: it must never reject a real block, only
+# obvious non-blocks. (2026-10-13: an all-f's mining.notify was promoted to
+# consensus_prevhash on all four collectors and silently halted collection for
+# ~13h, because such a value is 64 valid hex chars and passed the encoding check.)
+MIN_PREVHASH_ZERO_PREFIX = "0" * 8
+ZERO_PREVHASH = "0" * 64  # degenerate all-zeros sentinel (also leads with zeros)
+
 CLIENT_VERSION = "stratum-race/0.5"
 
 # POST retry constants
@@ -1814,6 +1825,18 @@ async def pool_worker(
                 try:
                     prevhash = stratum_prevhash_to_blockhash(params[1])
                 except ValueError:
+                    pool.bad_notify += 1
+                    continue
+
+                # A real block hash carries proof-of-work: it leads with many
+                # zero hex digits but is never entirely zeros. A prevhash that
+                # has no leading zeros (e.g. all-f's) or is all zeros is a
+                # sentinel or garbage value, not a block. Reject it here, the
+                # single point every prevhash passes through, so it can never be
+                # adopted as a pool prevhash, promoted to consensus, or sent to
+                # the mempool.space block lookup.
+                if (not prevhash.startswith(MIN_PREVHASH_ZERO_PREFIX)
+                        or prevhash == ZERO_PREVHASH):
                     pool.bad_notify += 1
                     continue
 
