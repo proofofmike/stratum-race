@@ -157,7 +157,7 @@ Access from any machine on your network at `http://<your-ip>:8080`.
 
 ## Pool Configuration
 
-The included `config/pools.json` connects to 29 major mining pools. Customize it:
+The included `config/pools.json` connects to 26 major mining pools. Customize it:
 
 ```json
 {
