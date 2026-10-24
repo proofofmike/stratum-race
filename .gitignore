@@ -47,3 +47,5 @@ export/
 
 # Local dev mock data (never commit)
 frontend/public/api/
+# Agent investigation reports and scratch output (never commit)
+.agents/

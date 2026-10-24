@@ -105,6 +105,31 @@ def compute_stats(acc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _restrict_and_rebase(offsets: Dict[str, Any], allowed_pools: set) -> Dict[str, float]:
+    """Return a new offset map holding only allowed pools, re-based to its minimum.
+
+    Race offsets are measured from the earliest pool in the race, and a win is
+    an offset of exactly 0.0. When that earliest pool has been removed, the
+    remaining offsets are shifted down so the fastest remaining pool reads 0.0
+    (x - x is exactly 0.0 in floats, so tied pools all keep a 0.0 win). When the
+    fastest pool is still allowed its offset is 0.0 and every value is unchanged.
+    Non-numeric values are skipped, as the accumulator does. The input map is
+    never modified.
+    """
+    kept: Dict[str, float] = {}
+    for pool_name, offset_val in offsets.items():
+        if pool_name not in allowed_pools:
+            continue
+        try:
+            kept[pool_name] = float(offset_val)
+        except (TypeError, ValueError):
+            continue
+    if not kept:
+        return {}
+    base = min(kept.values())
+    return {pool_name: offset - base for pool_name, offset in kept.items()}
+
+
 def compute_aggregate(
     races: List[Dict[str, Any]], label: str, generated_at: datetime,
     allowed_pools: Optional[set] = None,
@@ -113,10 +138,17 @@ def compute_aggregate(
 
     Returns the daily aggregate structure with combined and per-vantage breakdowns.
 
-    When allowed_pools is provided, only pools in that set appear in the output.
-    This lets the leaderboard drop pools removed from config immediately, instead
-    of waiting for their historical races to age out of every rolling window.
-    Historical race files are left untouched; only the aggregate output is filtered.
+    When allowed_pools is provided, the leaderboard reads as if pools outside
+    that set had never been on the roster, so a pool removed from config drops
+    out immediately instead of waiting for its races to age out of every rolling
+    window. Per race, removed pools are dropped from the full-template and
+    any-template offset maps, and each map is re-based independently to its
+    fastest remaining pool. That pool gets offset 0.0 (and the win), and the
+    other pools' offsets no longer include their gap to the removed pool.
+    empty_first_pools, empty_to_full_ms and the eligible list are restricted to
+    allowed pools too. Races are read-only here (they are shared across phases
+    via the day cache); stored race files are left untouched. total_races still
+    counts every race in scope. With allowed_pools=None, nothing is filtered.
     """
     if not races:
         return {
@@ -145,6 +177,17 @@ def compute_aggregate(
         eligible_pools = race.get("eligible_at_start") or list(
             set(list(offsets.keys()) + list(any_offsets.keys()))
         )
+        empty_to_full = race.get("empty_to_full_ms") or {}
+
+        if allowed_pools is not None:
+            # New containers only: the race dict itself must not be modified.
+            offsets = _restrict_and_rebase(offsets, allowed_pools)
+            any_offsets = _restrict_and_rebase(any_offsets, allowed_pools)
+            empty_first_pools &= allowed_pools
+            eligible_pools = [p for p in eligible_pools if p in allowed_pools]
+            empty_to_full = {
+                p: v for p, v in empty_to_full.items() if p in allowed_pools
+            }
 
         # --- Full Template stats (nonempty) ---
         for pool_name, offset_val in offsets.items():
@@ -171,7 +214,6 @@ def compute_aggregate(
             # Stale and gap samples for waste calculation
             stale_ms = offset
             gap_ms = 0.0
-            empty_to_full = race.get("empty_to_full_ms") or {}
             if pool_name in empty_to_full:
                 try:
                     gap_ms = float(empty_to_full[pool_name])

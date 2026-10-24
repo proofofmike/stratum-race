@@ -7,8 +7,10 @@ Tests cover:
 - percentile() with edge cases
 - compute_stats() with empty, single, all-zero, and varied data
 - compute_aggregate() with empty, single race, multi-vantage, and template modes
+- compute_aggregate(allowed_pools=...) dropping removed pools and re-basing offsets
 """
 
+import copy
 import math
 from datetime import datetime, timezone
 
@@ -218,3 +220,183 @@ class TestComputeAggregate:
         assert pool_a["any_combined"]["median_ms"] == 0.0
         pool_b = result["pools"]["poolB"]
         assert pool_b["any_combined"]["median_ms"] == 5.0
+
+
+NOW = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+ALLOWED = {"poolA", "poolB"}
+
+
+def _removed_pool_won_race():
+    """A race the removed pool won in both modes.
+
+    Full template: removed 0, poolA 40, poolB 100.
+    Any template:  removed 0, poolB 5,  poolA 10 (a different order on purpose,
+    so each map has to be re-based to its own fastest remaining pool).
+    """
+    return {
+        "vantage": "us-east-1",
+        "nonempty_arrivals_offset_ms": {"removed": 0.0, "poolA": 40.0, "poolB": 100.0},
+        "arrivals_offset_ms": {"removed": 0.0, "poolB": 5.0, "poolA": 10.0},
+        "empty_first_pools": ["removed", "poolB"],
+        "empty_to_full_ms": {"removed": 300.0, "poolB": 95.0},
+        "eligible_at_start": ["poolA", "poolB", "removed"],
+    }
+
+
+class TestComputeAggregateAllowedPools:
+    """compute_aggregate(allowed_pools=...) reads as if removed pools never raced."""
+
+    def test_removed_winner_hands_win_to_runner_up_and_rebases(self):
+        result = compute_aggregate([_removed_pool_won_race()], "d", NOW, ALLOWED)
+
+        assert set(result["pools"]) == ALLOWED
+        a = result["pools"]["poolA"]
+        b = result["pools"]["poolB"]
+
+        # Full template: poolA is fastest remaining -> 0.0 and the win
+        assert a["combined"]["wins"] == 1
+        assert a["combined"]["median_ms"] == 0.0
+        assert a["by_vantage"]["us-east-1"]["wins"] == 1
+        assert b["combined"]["wins"] == 0
+        assert b["combined"]["median_ms"] == 60.0
+        assert b["by_vantage"]["us-east-1"]["median_ms"] == 60.0
+
+        # Any template re-based independently: poolB is fastest remaining
+        assert b["any_combined"]["wins"] == 1
+        assert b["any_combined"]["median_ms"] == 0.0
+        assert a["any_combined"]["wins"] == 0
+        assert a["any_combined"]["median_ms"] == 5.0
+        assert a["any_by_vantage"]["us-east-1"]["median_ms"] == 5.0
+
+    def test_rebased_win_matches_race_without_removed_pool(self):
+        """Re-based output equals the output for the race minus the removed pool."""
+        race = _removed_pool_won_race()
+        without = {
+            "vantage": "us-east-1",
+            "nonempty_arrivals_offset_ms": {"poolA": 0.0, "poolB": 60.0},
+            "arrivals_offset_ms": {"poolB": 0.0, "poolA": 5.0},
+            "empty_first_pools": ["poolB"],
+            "empty_to_full_ms": {"poolB": 95.0},
+            "eligible_at_start": ["poolA", "poolB"],
+        }
+        assert (
+            compute_aggregate([race], "d", NOW, ALLOWED)["pools"]
+            == compute_aggregate([without], "d", NOW)["pools"]
+        )
+
+    def test_removed_pool_that_did_not_win_changes_nothing(self):
+        race = {
+            "vantage": "us-east-1",
+            "nonempty_arrivals_offset_ms": {"poolA": 0.0, "poolB": 25.5, "removed": 70.0},
+            "arrivals_offset_ms": {"poolB": 0.0, "poolA": 3.25, "removed": 9.0},
+            "empty_first_pools": ["poolB"],
+            "empty_to_full_ms": {"poolB": 25.5},
+            "eligible_at_start": ["poolA", "poolB", "removed"],
+        }
+        filtered = compute_aggregate([race], "d", NOW, ALLOWED)
+        unfiltered = compute_aggregate([race], "d", NOW)
+
+        assert "removed" not in filtered["pools"]
+        for pool in ALLOWED:
+            assert filtered["pools"][pool] == unfiltered["pools"][pool]
+
+    def test_allowed_pools_none_is_unchanged(self):
+        """With no roster, the removed pool keeps its win and nothing is re-based."""
+        result = compute_aggregate([_removed_pool_won_race()], "d", NOW, None)
+
+        assert set(result["pools"]) == {"poolA", "poolB", "removed"}
+        assert result["pools"]["removed"]["combined"]["wins"] == 1
+        assert result["pools"]["removed"]["any_combined"]["wins"] == 1
+        assert result["pools"]["poolA"]["combined"]["wins"] == 0
+        assert result["pools"]["poolA"]["combined"]["median_ms"] == 40.0
+        assert result["pools"]["poolB"]["combined"]["median_ms"] == 100.0
+        assert result["pools"]["poolB"]["any_combined"]["median_ms"] == 5.0
+        assert result["pools"]["poolA"]["any_combined"]["median_ms"] == 10.0
+        # Default argument behaves the same as an explicit None
+        assert compute_aggregate([_removed_pool_won_race()], "d", NOW) == result
+
+    def test_input_races_are_not_mutated(self):
+        """Races are shared across phases via the day cache, so must stay intact."""
+        races = [_removed_pool_won_race(), _removed_pool_won_race()]
+        races[1]["vantage"] = "eu-central-1"
+        snapshot = copy.deepcopy(races)
+
+        compute_aggregate(races, "d", NOW, ALLOWED)
+
+        assert races == snapshot
+        # A later unfiltered phase over the same objects still sees the originals
+        later = compute_aggregate(races, "d", NOW)
+        assert later["pools"]["removed"]["combined"]["wins"] == 2
+
+    def test_empty_first_gap_and_eligible_are_filtered(self):
+        result = compute_aggregate([_removed_pool_won_race()], "d", NOW, ALLOWED)
+        a = result["pools"]["poolA"]
+        b = result["pools"]["poolB"]
+
+        assert "removed" not in result["pools"]
+        assert a["combined"]["races_eligible"] == 1
+        assert b["combined"]["races_eligible"] == 1
+        assert a["combined"]["empty_first_pct"] == 0.0
+        assert b["combined"]["empty_first_pct"] == 100.0
+        assert b["any_combined"]["empty_first_pct"] == 100.0
+        # poolB's own empty->full gap still feeds its waste figure:
+        # (60 stale + 0.02 * 95 gap) / 600000 * 1440
+        assert b["combined"]["waste_min_day"] == round((60.0 + 0.02 * 95.0) / 600_000 * 1440, 2)
+
+    def test_fallback_eligible_list_is_filtered(self):
+        """Without eligible_at_start, the key-union fallback excludes removed pools."""
+        race = _removed_pool_won_race()
+        del race["eligible_at_start"]
+        result = compute_aggregate([race], "d", NOW, ALLOWED)
+
+        assert set(result["pools"]) == ALLOWED
+        assert result["pools"]["poolA"]["combined"]["races_eligible"] == 1
+        assert result["pools"]["poolB"]["any_combined"]["races_eligible"] == 1
+
+    def test_race_with_every_pool_removed_contributes_nothing(self):
+        only_removed = {
+            "vantage": "us-east-1",
+            "nonempty_arrivals_offset_ms": {"removed": 0.0},
+            "arrivals_offset_ms": {"removed": 0.0},
+            "empty_first_pools": ["removed"],
+            "empty_to_full_ms": {"removed": 300.0},
+            "eligible_at_start": ["removed"],
+        }
+        assert compute_aggregate([only_removed], "d", NOW, ALLOWED)["pools"] == {}
+
+        normal = {
+            "vantage": "us-east-1",
+            "nonempty_arrivals_offset_ms": {"poolA": 0.0, "poolB": 20.0},
+            "arrivals_offset_ms": {"poolA": 0.0, "poolB": 20.0},
+            "empty_first_pools": [],
+            "eligible_at_start": ["poolA", "poolB"],
+        }
+        mixed = compute_aggregate([only_removed, normal], "d", NOW, ALLOWED)
+        alone = compute_aggregate([normal], "d", NOW, ALLOWED)
+        assert mixed["pools"] == alone["pools"]
+        # The race still counts toward races tracked
+        assert mixed["total_races"] == 2
+
+    def test_tied_fastest_remaining_pools_all_win(self):
+        race = {
+            "vantage": "us-east-1",
+            "nonempty_arrivals_offset_ms": {"removed": 0.0, "poolA": 12.5, "poolB": 12.5},
+            "arrivals_offset_ms": {"removed": 0.0, "poolA": 12.5, "poolB": 12.5},
+            "empty_first_pools": [],
+            "eligible_at_start": ["poolA", "poolB", "removed"],
+        }
+        result = compute_aggregate([race], "d", NOW, ALLOWED)
+        for pool in ALLOWED:
+            assert result["pools"][pool]["combined"]["wins"] == 1
+            assert result["pools"][pool]["any_combined"]["wins"] == 1
+
+    def test_non_numeric_offsets_are_skipped(self):
+        race = _removed_pool_won_race()
+        race["nonempty_arrivals_offset_ms"]["poolC"] = None
+        race["arrivals_offset_ms"]["poolC"] = "bad"
+        result = compute_aggregate([race], "d", NOW, ALLOWED | {"poolC"})
+
+        assert result["pools"]["poolA"]["combined"]["median_ms"] == 0.0
+        assert result["pools"]["poolB"]["any_combined"]["median_ms"] == 0.0
+        # Same as the unfiltered path: a pool with only bad values never appears
+        assert "poolC" not in result["pools"]

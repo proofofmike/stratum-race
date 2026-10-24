@@ -1134,43 +1134,6 @@
       "fees": {
         "Solo": 1.5
       }
-    },
-    {
-      "name": "nexuspool",
-      "display_name": "NexusPool",
-      "host": "solo.nexuspool.io",
-      "port": 3350,
-      "operator": "NexusPool",
-      "pool_type": "solo",
-      "groups": [
-        "all"
-      ],
-      "payout_type": "Solo",
-      "fee_pct": 0,
-      "website_url": "https://nexuspool.io/",
-      "location": "Global",
-      "stratum_endpoints": [
-        {
-          "host": "solo.nexuspool.io",
-          "port": 3350
-        }
-      ],
-      "features": {
-        "tls": false,
-        "lightning": false,
-        "tor": false,
-        "sv2": true
-      },
-      "notes": "Registration-free, non-custodial solo pool. Single latency-steered hostname across Los Angeles, Chicago, Frankfurt, and Singapore; Stratum V2 on all regions.",
-      "first_added_utc": "2026-10-18T00:00:00Z",
-      "tagline": "Registration-Free Solo at 0%",
-      "description": "NexusPool is a registration-free, non-custodial Bitcoin solo mining pool at 0% fee. The miner's address goes straight into the coinbase \u2014 no account, no withdrawal. A single latency-steered hostname routes each connection to the nearest of four regions (Los Angeles, Chicago, Frankfurt, Singapore), with Stratum V2 available on all of them.",
-      "founded": null,
-      "payout_method": "Direct coinbase (non-custodial). 100% of the block reward paid straight to the miner's wallet address.",
-      "geographic_presence": "Los Angeles, Chicago, Frankfurt, and Singapore (latency-routed).",
-      "fees": {
-        "Solo": 0
-      }
     }
   ]
 }
