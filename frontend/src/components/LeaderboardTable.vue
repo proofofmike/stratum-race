@@ -140,22 +140,31 @@ function medianBarWidth(medianMs: number | null | undefined): string {
 }
 
 /**
- * Color for the median bar: green (fast) → yellow (mid) → red (slow).
- * Uses linear interpolation across the range [0, maxMedian].
+ * Color for the median bar, on fixed millisecond thresholds so a color means
+ * the same speed regardless of which pools are in view.
+ * Hue stops (interpolated linearly between them):
+ *   0-500ms green, 500ms greenish-yellow, 600ms yellow,
+ *   1200ms orange, 1500ms orange-red, above 1500ms red.
  */
+const COLOR_STOPS: Array<[number, number]> = [
+  [0, 120],
+  [500, 95],
+  [600, 60],
+  [1200, 30],
+  [1500, 12],
+]
+
 function medianBarColor(medianMs: number | null | undefined): string {
-  if (medianMs == null || maxMedian.value <= 0) return 'var(--accent)'
-  const ratio = Math.min(1, Math.max(0, medianMs / maxMedian.value))
-  // Green (0) → Yellow (0.5) → Red (1)
-  if (ratio <= 0.5) {
-    // Green to Yellow: hue 120 → 60
-    const hue = 120 - (ratio * 2) * 60
-    return `hsl(${hue}, 75%, 50%)`
-  } else {
-    // Yellow to Red: hue 60 → 0
-    const hue = 60 - ((ratio - 0.5) * 2) * 60
-    return `hsl(${hue}, 75%, 50%)`
+  if (medianMs == null) return 'var(--accent)'
+  for (let i = 1; i < COLOR_STOPS.length; i++) {
+    const [ms0, hue0] = COLOR_STOPS[i - 1]
+    const [ms1, hue1] = COLOR_STOPS[i]
+    if (medianMs <= ms1) {
+      const t = Math.max(0, (medianMs - ms0) / (ms1 - ms0))
+      return `hsl(${hue0 + (hue1 - hue0) * t}, 75%, 50%)`
+    }
   }
+  return 'hsl(0, 75%, 50%)'
 }
 
 /** Format numeric values for display */
